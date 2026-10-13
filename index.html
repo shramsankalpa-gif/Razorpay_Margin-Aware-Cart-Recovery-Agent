@@ -1,0 +1,1283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Margin-Aware Cart Recovery</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: fixed navy nav rail + scrolling work area; dense, scannable merchant console */
+:root{
+  --bg:#F3F5F9; --surface:#FFFFFF; --surface-2:#EEF1F7; --line:#DCE2EC; --line-2:#C8D0DE;
+  --fg:#101B33; --fg-2:#46536E; --fg-3:#76829B;
+  --accent:#1F5CE0; --accent-ink:#FFFFFF; --accent-soft:#E5EDFD;
+  --nav-bg:#0C172E; --nav-fg:#B9C5DD; --nav-fg-strong:#FFFFFF; --nav-hover:#16233F; --nav-muted:#5E6B86;
+  --good:#11804F; --good-soft:#E1F3EA; --warn:#A35F00; --warn-soft:#FCEFD8; --bad:#BC3434; --bad-soft:#FAE4E4;
+  --control:#6B48C0; --control-soft:#EEE8FA; --test:#0F7F8C; --test-soft:#E0F2F4;
+  --s-agent:#1F5CE0; --s-flat:#8C95A8; --s-tier:#C7832A;
+  --wa:#E7F6EC; --wa-ink:#173D27;
+  --shadow:0 1px 2px rgba(16,27,51,.06),0 8px 24px rgba(16,27,51,.08);
+  --f-ui:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0A111F; --surface:#111A2C; --surface-2:#172238; --line:#24304A; --line-2:#33405D;
+  --fg:#E5EBF6; --fg-2:#A7B3CA; --fg-3:#7B88A3;
+  --accent:#5B8CFF; --accent-ink:#06122C; --accent-soft:#18284D;
+  --nav-bg:#060C18; --nav-fg:#9FACC6; --nav-fg-strong:#FFFFFF; --nav-hover:#101A2E; --nav-muted:#4B5873;
+  --good:#3EC48B; --good-soft:#0F2B1F; --warn:#EDB050; --warn-soft:#33250E; --bad:#F27575; --bad-soft:#381717;
+  --control:#A58BEE; --control-soft:#241B3D; --test:#4CC3CF; --test-soft:#0D2A2E;
+  --s-agent:#5B8CFF; --s-flat:#7F8AA0; --s-tier:#E0A04A;
+  --wa:#163323; --wa-ink:#D7F0DF;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0A111F; --surface:#111A2C; --surface-2:#172238; --line:#24304A; --line-2:#33405D;
+  --fg:#E5EBF6; --fg-2:#A7B3CA; --fg-3:#7B88A3;
+  --accent:#5B8CFF; --accent-ink:#06122C; --accent-soft:#18284D;
+  --nav-bg:#060C18; --nav-fg:#9FACC6; --nav-fg-strong:#FFFFFF; --nav-hover:#101A2E; --nav-muted:#4B5873;
+  --good:#3EC48B; --good-soft:#0F2B1F; --warn:#EDB050; --warn-soft:#33250E; --bad:#F27575; --bad-soft:#381717;
+  --control:#A58BEE; --control-soft:#241B3D; --test:#4CC3CF; --test-soft:#0D2A2E;
+  --s-agent:#5B8CFF; --s-flat:#7F8AA0; --s-tier:#E0A04A;
+  --wa:#163323; --wa-ink:#D7F0DF;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35); color-scheme:dark}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:14px;line-height:1.5}
+button,input,select{font:inherit;color:inherit}
+h1,h2,h3{margin:0;text-wrap:balance;letter-spacing:-.01em}
+h1{font-size:22px;font-weight:700}
+h2{font-size:16px;font-weight:650}
+h3{font-size:14px;font-weight:650}
+p{margin:0}
+.mono{font-family:var(--f-mono);font-size:12.5px}
+.num{font-variant-numeric:tabular-nums}
+.muted{color:var(--fg-2)}
+.faint{color:var(--fg-3)}
+.label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+
+/* shell */
+.app{display:grid;grid-template-columns:236px minmax(0,1fr);min-height:100%}
+.nav{background:var(--nav-bg);color:var(--nav-fg);padding:18px 12px;display:flex;flex-direction:column;gap:18px;position:sticky;top:0;height:100vh;overflow-y:auto}
+.nav-brand{display:flex;align-items:center;gap:10px;padding:2px 8px}
+.nav-brand .mark{width:30px;height:30px;border-radius:7px;background:var(--accent);display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px}
+.nav-brand b{color:var(--nav-fg-strong);font-size:13.5px;display:block;line-height:1.2}
+.nav-brand small{font-size:11.5px;color:var(--nav-muted)}
+.nav-group{display:flex;flex-direction:column;gap:2px}
+.nav-group .label{color:var(--nav-muted);padding:0 10px 6px}
+.nav button{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px;cursor:pointer;font-size:13.5px;color:var(--nav-fg)}
+.nav button:hover{background:var(--nav-hover);color:var(--nav-fg-strong)}
+.nav button[aria-current="page"]{background:var(--accent);color:#fff}
+.nav button[disabled]{color:var(--nav-muted);cursor:default}
+.nav button[disabled]:hover{background:none}
+.nav svg{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7}
+.nav-foot{margin-top:auto;font-size:11.5px;color:var(--nav-muted);padding:0 10px;line-height:1.45}
+
+.main{min-width:0;display:flex;flex-direction:column}
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--surface);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:10px 24px;flex-wrap:wrap}
+.crumb{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--fg-3);min-width:0}
+.crumb b{color:var(--fg);font-weight:600}
+.topbar .spacer{flex:1}
+.menu-btn{display:none}
+.concept{font-size:11.5px;font-weight:600;color:var(--warn);background:var(--warn-soft);padding:3px 9px;border-radius:999px;white-space:nowrap}
+.sel{display:flex;align-items:center;gap:6px}
+select,input[type="text"],input[type="number"],input[type="search"]{background:var(--surface);border:1px solid var(--line-2);border-radius:6px;padding:6px 9px;min-height:34px}
+select{padding-right:28px;appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--fg-3) 50%),linear-gradient(135deg,var(--fg-3) 50%,transparent 50%);background-position:calc(100% - 15px) 50%,calc(100% - 10px) 50%;background-size:5px 5px;background-repeat:no-repeat}
+input[type="number"]{width:78px;text-align:right}
+.content{padding-block:24px 48px;padding-inline:24px;display:flex;flex-direction:column;gap:20px;max-width:1280px;width:100%}
+.page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.page-head p{color:var(--fg-2);max-width:68ch;margin-top:4px}
+
+/* primitives */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:18px}
+.card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.card-head p{color:var(--fg-2);font-size:13px;margin-top:3px;max-width:70ch}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--line-2);background:var(--surface);border-radius:6px;padding:7px 12px;min-height:34px;font-weight:600;font-size:13px;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:var(--fg-3)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.good{background:var(--good);border-color:var(--good);color:#fff}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--accent)}
+.btn.ghost:hover{background:var(--accent-soft)}
+.btn.danger{color:var(--bad)}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap;line-height:1.6}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.plain::before{display:none}
+.p-good{color:var(--good);background:var(--good-soft)}
+.p-warn{color:var(--warn);background:var(--warn-soft)}
+.p-bad{color:var(--bad);background:var(--bad-soft)}
+.p-info{color:var(--accent);background:var(--accent-soft)}
+.p-control{color:var(--control);background:var(--control-soft)}
+.p-test{color:var(--test);background:var(--test-soft)}
+.p-mute{color:var(--fg-2);background:var(--surface-2)}
+.seg{display:inline-flex;border:1px solid var(--line-2);border-radius:7px;padding:2px;background:var(--surface-2);gap:2px;flex-wrap:wrap}
+.seg button{all:unset;cursor:pointer;padding:5px 11px;border-radius:5px;font-size:12.5px;font-weight:600;color:var(--fg-2)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--fg);box-shadow:0 1px 2px rgba(16,27,51,.12)}
+.seg button:focus-visible{outline:2px solid var(--accent)}
+.switch{display:inline-flex;align-items:center;gap:10px;cursor:pointer;user-select:none}
+.switch input{position:absolute;opacity:0;width:1px;height:1px}
+.switch .track{width:36px;height:20px;border-radius:999px;background:var(--line-2);position:relative;transition:background .15s;flex:none}
+.switch .track::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.switch input:checked + .track{background:var(--good)}
+.switch input:checked + .track::after{transform:translateX(16px)}
+.switch input:focus-visible + .track{outline:2px solid var(--accent);outline-offset:2px}
+.switch input:disabled + .track{opacity:.55}
+.chip{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-2);border-radius:999px;padding:5px 11px;font-size:12.5px;font-weight:500;background:var(--surface)}
+.chip[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+.chip:focus-visible{outline:2px solid var(--accent)}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.split{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
+.tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--fg-3);text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);background:var(--surface-2);white-space:nowrap}
+td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+td.r,th.r{text-align:right}
+tbody tr.click{cursor:pointer}
+tbody tr.click:hover{background:var(--surface-2)}
+.banner{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:11px 14px;border-radius:8px;border:1px solid var(--line);background:var(--surface)}
+.banner.warn{background:var(--warn-soft);border-color:transparent;color:var(--warn)}
+.banner.info{background:var(--accent-soft);border-color:transparent}
+.banner.info b{color:var(--accent)}
+
+/* marketplace */
+.agent-feature{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:20px;padding:22px;border:1px solid var(--accent);border-radius:10px;background:var(--surface)}
+.agent-feature h2{font-size:20px}
+.agent-feature ul{margin:10px 0 0;padding-left:18px;color:var(--fg-2);display:grid;gap:4px}
+.agent-meta{display:grid;gap:10px;align-content:start;background:var(--surface-2);border-radius:8px;padding:14px;font-size:13px}
+.agent-meta div{display:flex;justify-content:space-between;gap:12px}
+.agent-card{display:flex;flex-direction:column;gap:8px}
+.agent-card .ico{width:34px;height:34px;border-radius:8px;background:var(--surface-2);display:grid;place-items:center;color:var(--fg-2)}
+.agent-card .ico svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7}
+.agent-card p{color:var(--fg-2);font-size:13px}
+.agent-card .foot{margin-top:auto;display:flex;justify-content:space-between;align-items:center;padding-top:6px}
+
+/* kpis */
+.kpi{all:unset;box-sizing:border-box;cursor:pointer;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.kpi:hover{border-color:var(--accent)}
+.kpi:focus-visible{outline:2px solid var(--accent)}
+.kpi .v{font-size:22px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.kpi .s{font-size:12px;color:var(--fg-2)}
+.kpi .s b{color:var(--good);font-weight:600}
+.phase-bar{display:grid;grid-template-columns:21fr 25fr 44fr;gap:3px;margin-top:10px}
+.phase-bar div{height:8px;border-radius:2px;background:var(--line-2)}
+.phase-bar div.on{background:var(--accent)}
+.phase-labels{display:grid;grid-template-columns:21fr 25fr 44fr;gap:3px;font-size:11.5px;color:var(--fg-3);margin-top:6px}
+.phase-labels b{color:var(--fg);font-weight:600;display:block}
+.chart-box{position:relative;height:280px}
+.chart-box.sm{height:230px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--fg-2)}
+.legend label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.legend i{width:12px;height:3px;border-radius:2px;display:inline-block}
+
+/* curve explorer */
+.explorer{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;align-items:start}
+.ctrl{display:grid;gap:16px}
+.ctrl .field{display:grid;gap:6px}
+.readout{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.readout .big{font-size:24px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.readout .big.good{color:var(--good)}
+
+/* recommendations */
+.recs{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
+.rec{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.rec.approved{border-color:color-mix(in srgb,var(--good) 45%,var(--line))}
+.rec.rejected{opacity:.78}
+.rec-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.rec h3{font-size:13.5px}
+.offer{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.offer .amt{font-size:26px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.offer .amt.zero{font-size:20px;color:var(--fg-2)}
+.rec-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12.5px;border-top:1px solid var(--line);padding-top:10px}
+.rec-stats b{display:block;font-size:14px;font-variant-numeric:tabular-nums}
+.rec-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto}
+.why{background:var(--surface-2);border-radius:6px;padding:10px 12px;font-size:13px;color:var(--fg-2);line-height:1.55}
+.ask{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+.ask-form{display:flex;gap:8px}
+.ask-form input{flex:1;min-width:0}
+.answer{background:var(--surface-2);border-radius:8px;padding:14px;min-height:72px;white-space:pre-wrap;line-height:1.6}
+.answer.empty{color:var(--fg-3)}
+.mode{font-size:11.5px;font-weight:600}
+
+/* setup */
+.setup-grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:16px;align-items:start}
+.cat-tbl input[type="text"]{width:100%;min-width:150px}
+.cat-tbl select{min-width:190px;max-width:100%}
+.cat-tbl td{padding:7px 10px}
+.warn-txt{color:var(--warn);font-size:12px}
+.setting{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid var(--line)}
+.setting:last-child{border-bottom:0;padding-bottom:0}
+.setting:first-child{padding-top:0}
+.setting p{font-size:12.5px;color:var(--fg-2);margin-top:2px}
+.radio-list{display:grid;gap:8px}
+.radio-list label{display:flex;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:7px;cursor:pointer}
+.radio-list label:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+.radio-list label.dis{opacity:.55;cursor:not-allowed}
+.drop{border:1.5px dashed var(--line-2);border-radius:8px;padding:14px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:var(--surface-2)}
+.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+
+/* log + drawer */
+.filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.pager{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--fg-2)}
+.scrim{position:fixed;inset:0;background:rgba(6,12,24,.45);z-index:50}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(520px,100%);background:var(--surface);z-index:51;box-shadow:var(--shadow);display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+.drawer-head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--line)}
+.drawer-body{padding:18px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:18px}
+.modal{position:fixed;z-index:51;top:50%;left:50%;transform:translate(-50%,-50%);width:min(680px,calc(100% - 32px));max-height:calc(100% - 48px);background:var(--surface);border-radius:10px;box-shadow:var(--shadow);display:flex;flex-direction:column}
+.modal .drawer-body{padding:20px}
+.modal-foot{display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--line);flex-wrap:wrap}
+.x{all:unset;cursor:pointer;width:30px;height:30px;border-radius:6px;display:grid;place-items:center;color:var(--fg-2)}
+.x:hover{background:var(--surface-2)}
+.x:focus-visible{outline:2px solid var(--accent)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:13px}
+.kv dt{color:var(--fg-3)}
+.kv dd{margin:0}
+.bubble{background:var(--wa);color:var(--wa-ink);border-radius:10px 10px 10px 2px;padding:12px 14px;max-width:360px;font-size:13.5px;line-height:1.55}
+.bubble .cta{display:block;margin-top:10px;padding-top:9px;border-top:1px solid color-mix(in srgb,var(--wa-ink) 18%,transparent);font-weight:600;color:var(--accent);text-align:center}
+.bubble small{display:block;margin-top:8px;opacity:.7;font-size:11.5px}
+.checks{display:grid;gap:7px;font-size:13px}
+.checks div{display:flex;gap:9px;align-items:flex-start}
+.checks .ok{color:var(--good);font-weight:700}
+.checks .no{color:var(--bad);font-weight:700}
+.diff-new{background:var(--good-soft)}
+.diff-chg{color:var(--accent);font-weight:600}
+.toast{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:8px;font-size:13px;font-weight:500;z-index:60;box-shadow:var(--shadow);max-width:calc(100% - 32px)}
+.empty-state{text-align:center;padding:36px 16px;color:var(--fg-2)}
+.spark{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:middle}
+
+@media (max-width:1100px){
+  .g4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .setup-grid,.explorer,.split{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:900px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .nav{position:fixed;left:0;top:0;bottom:0;width:248px;z-index:55;transform:translateX(-100%);transition:transform .2s;height:auto;padding-top:calc(18px + env(safe-area-inset-top,0px))}
+  .nav.open{transform:none}
+  .menu-btn{display:inline-flex}
+  .topbar{padding:10px 16px}
+  .content{padding-inline:16px}
+  .g3,.g2{grid-template-columns:minmax(0,1fr)}
+  .agent-feature{grid-template-columns:minmax(0,1fr)}
+  .readout{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:560px){
+  .g4{grid-template-columns:minmax(0,1fr)}
+  .topbar .concept{order:5}
+  .rec-stats{grid-template-columns:1fr 1fr}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+.nba{display:grid;gap:10px}
+.nba-item{display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2)}
+.nba-item p{font-size:13px;color:var(--fg-2);margin-top:2px;max-width:80ch}
+.how-steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.how-steps div{background:var(--surface-2);border-radius:8px;padding:10px 12px;font-size:13px}
+@media (max-width:560px){.how-steps{grid-template-columns:minmax(0,1fr)}}
+.rules{margin:0;padding-left:18px;display:grid;gap:8px;line-height:1.55;max-width:90ch}
+.ctrl .field select{width:100%}
+tr.expand td{background:var(--surface-2)}
+tr.expand .why{background:transparent;padding:4px 0}
+.sig-list .setting p{max-width:60ch}
+</style>
+<style>body{margin:0}[hidden]{display:none!important}img{max-width:100%}</style>
+</head>
+<body>
+
+
+<div class="app">
+  <nav class="nav" id="nav" aria-label="Main">
+    <div class="nav-brand"><div class="mark" id="navMark">G</div><div><b id="navMerchant">Glow &amp; Co.</b><small id="navVertical">Skincare · D2C</small></div></div>
+    <div class="nav-group">
+      <button disabled title="Not part of this prototype"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Home</button>
+      <button disabled title="Not part of this prototype"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg>Transactions</button>
+      <button disabled title="Not part of this prototype"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg>Magic Checkout</button>
+    </div>
+    <div class="nav-group" id="agentNav">
+      <span class="label">Agent Studio</span>
+      <button data-view="marketplace"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Marketplace</button>
+      <button data-view="setup"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3.9a7 7 0 0 0-2-1.2L14.3 3h-4l-.4 2.6a7 7 0 0 0-2 1.2l-2.3-.9-2 3.4 2 1.5a7 7 0 0 0 0 2.4l-2 1.5 2 3.4 2.3-.9a7 7 0 0 0 2 1.2l.4 2.6h4l.4-2.6a7 7 0 0 0 2-1.2l2.3.9 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"/></svg>Setup</button>
+      <button data-view="performance"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 15l4-4 3 3 5-6"/></svg>Performance</button>
+      <button data-view="curves"><svg viewBox="0 0 24 24"><path d="M3 20c4 0 6-12 10-12s5 5 8 5"/><path d="M3 20h18"/></svg>Response curves</button>
+      <button data-view="recs"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg>Recommendations</button>
+      <button data-view="log"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Cart log</button>
+    </div>
+    <div class="nav-group">
+      <button disabled title="Not part of this prototype"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/></svg>Account &amp; settings</button>
+    </div>
+    <p class="nav-foot">Concept prototype by Anuraag Praharaj for the Razorpay × ISB AI PM Build Challenge. Not a Razorpay product. All merchants and numbers are synthetic.</p>
+  </nav>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="btn menu-btn" id="menuBtn" aria-label="Open menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      <div class="crumb"><span>Agent Studio</span><span>/</span><b id="crumb">Marketplace</b></div>
+      <span class="spacer"></span>
+      <label class="sel"><span class="label">Merchant</span>
+        <select id="merchantSel" aria-label="Merchant"></select></label>
+      <label class="sel"><span class="label">Period</span>
+        <select id="rangeSel" aria-label="Period"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option></select></label>
+      <button class="btn" id="howBtn">How it works</button>
+      <span class="concept">Concept · synthetic data</span>
+    </header>
+    <main class="content" id="view" tabindex="-1"></main>
+  </div>
+</div>
+<div id="overlay"></div>
+<div class="toast" id="toast" hidden></div>
+<input type="file" id="fileIn" accept=".xlsx,.xls,.csv,.pdf" hidden>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<script>
+"use strict";
+/* ================= MODEL (synthetic) ================= */
+const DAYS = 90, TAU = 0.03, CONTROL_SHARE = 0.10, S0 = 0.12;
+const START = new Date(2026, 6, 15); // day 0 = 15 Jul 2026
+const VIEWS = {}, BIND = {};
+// Shared product-type taxonomy. Value = pooled discount sensitivity learned across merchants (synthetic).
+const TYPES = {
+  "Skincare › Serums": 0.30, "Skincare › Moisturisers": 0.20, "Skincare › Sun care": 0.00, "Skincare › Lip care": -0.20,
+  "Skincare › Cleansers": 0.05, "Beauty › Gift sets": 0.45, "Beauty › Fragrance": 0.25,
+  "Accessories › Jewellery": 0.20, "Accessories › Bags": 0.25, "Apparel › Dupattas & stoles": 0.25, "Apparel › Ethnic sets": 0.35,
+  "Apparel › Co-ord sets": 0.30, "Apparel › Shirts": 0.10, "Apparel › Footwear": 0.25,
+  "Fitness › Accessories": 0.15, "Nutrition › Pre-workout": 0.20, "Nutrition › Creatine": 0.05, "Nutrition › Protein powder": 0.33,
+  "Nutrition › Vitamins": 0.10, "Home › Decor": 0.25, "Other": 0.15 };
+const TYPE_HINTS = [[/serum|drops|essence/i,"Skincare › Serums"],[/cream|moistur|balm|night/i,"Skincare › Moisturisers"],[/spf|sun/i,"Skincare › Sun care"],[/lip/i,"Skincare › Lip care"],[/cleans|face ?wash/i,"Skincare › Cleansers"],[/gift|hamper|box/i,"Beauty › Gift sets"],[/perfume|fragrance|mist/i,"Beauty › Fragrance"],[/jewel|earring|necklace|ring|bangle/i,"Accessories › Jewellery"],[/bag|tote|clutch/i,"Accessories › Bags"],[/dupatta|stole|scarf/i,"Apparel › Dupattas & stoles"],[/kurta|saree|lehenga|ethnic/i,"Apparel › Ethnic sets"],[/co-?ord/i,"Apparel › Co-ord sets"],[/shirt|tee|top/i,"Apparel › Shirts"],[/shoe|sneaker|sandal|footwear/i,"Apparel › Footwear"],[/shaker|strap|glove|gear|band/i,"Fitness › Accessories"],[/pre-?workout|electrolyte/i,"Nutrition › Pre-workout"],[/creatine/i,"Nutrition › Creatine"],[/protein|whey/i,"Nutrition › Protein powder"],[/vitamin|multivit|omega/i,"Nutrition › Vitamins"],[/decor|candle|vase/i,"Home › Decor"]];
+const guessType = name => (TYPE_HINTS.find(([re]) => re.test(name)) || [0, "Other"])[1];
+
+// Signals the model may use. B = effect on base purchase odds, S = effect on discount sensitivity (both logit scale, synthetic).
+const SIGNALS = [
+  { id: "shopper", label: "Shopper", scope: "customer", levels: ["First-time", "Repeat"], B: [0, 1.0], S: [0, -0.56],
+    note: "Whether this shopper has ordered from you before. Needs the shopper to be recognised, so it's customer-level." },
+  { id: "pay", label: "Payment method", scope: "session", levels: ["UPI", "Credit card", "Debit card", "Net banking", "Cash on delivery", "Not chosen"], B: [0, 0.15, -0.05, -0.10, -0.45, -0.35], S: [0.05, -0.05, 0.05, 0, 0.42, 0.15],
+    note: "The method the shopper picked before leaving." },
+  { id: "status", label: "Payment status", scope: "session", levels: ["Left before paying", "Bank decline", "UPI timeout", "OTP failed"], B: [0, 0.55, 0.85, 0.70], S: [0, -0.75, -0.75, -0.75],
+    note: "Whether a payment attempt failed, and why. Only exists when the shopper tried to pay." },
+  { id: "slot", label: "Time of day", scope: "session", levels: ["Early morning (5–9)", "Morning (9–12)", "Afternoon (12–4)", "Evening (4–8)", "Night (8–12)", "Late night (12–5)"], B: [-0.10, 0, 0, 0.10, -0.10, -0.35], S: [0, 0, 0, 0.10, 0.15, 0.20],
+    note: "When the cart was abandoned." },
+  { id: "day", label: "Day", scope: "session", levels: ["Weekday", "Weekend", "Payday week (1st–7th)"], B: [0, 0.05, 0.15], S: [0, 0.05, -0.05],
+    note: "Weekday, weekend, or the first week of the month." },
+  { id: "season", label: "Season", scope: "session", levels: ["Regular", "Sale event", "Festive"], B: [0, 0.15, 0.30], S: [0, 0.20, 0.12],
+    note: "Your sale events and festive weeks." },
+  { id: "region", label: "Region", scope: "bucket", levels: ["Metro", "Tier 1", "Tier 2", "Tier 3", "Unknown"], B: [0.10, 0, -0.15, -0.30, -0.20], S: [-0.10, 0, 0.10, 0.20, 0.05],
+    note: "City tier from the shipping pincode. Only the tier is used, never the address." },
+  { id: "size", label: "Cart size", scope: "session", levels: ["Under 0.5× AOV", "0.5–1× AOV", "1–2× AOV", "Over 2× AOV"], B: [0.15, 0, -0.15, -0.30], S: [-0.10, 0, 0.10, 0.20],
+    note: "Cart value compared with your own average order value." },
+  { id: "coupon", label: "Coupon behaviour", scope: "session", levels: ["Didn't look", "Opened coupons", "Tried a code that failed"], B: [0, -0.05, -0.25], S: [0, 0.25, 0.50],
+    note: "What the shopper did with coupons in this checkout." },
+  { id: "source", label: "Traffic source", scope: "session", levels: ["Organic / direct", "Paid social", "Search ads", "Influencer", "Email / WhatsApp"], B: [0.20, -0.30, 0, -0.20, 0.30], S: [-0.15, 0.25, 0, 0.30, -0.10],
+    note: "From the UTM fields in the abandoned-checkout event." } ];
+const SIG_IDX = Object.fromEntries(SIGNALS.map((s, j) => [s.id, j]));
+const SCOPE_PILL = { customer: '<span class="pill p-warn plain">Customer-level</span>', bucket: '<span class="pill p-info plain">Bucket only</span>', session: '<span class="pill p-mute plain">This checkout</span>' };
+
+const MERCHANTS = [
+  { id: "glow", name: "Glow & Co.", vertical: "Skincare", perDay: 32, b0: -1.75, pRepeat: 0.35, pCod: 0.35,
+    dist: { region: [.42, .25, .18, .08, .07], source: [.25, .35, .12, .18, .10] },
+    other: { p: 0.4, lo: 199, hi: 499, margin: 0.30, label: "Cleansers & basics" },
+    cats: [
+      { key: "c1", name: "Vitamin C serums", type: "Skincare › Serums", price: 899, margin: 72, cap: 15, w: 0.30 },
+      { key: "c2", name: "Night repair creams", type: "Skincare › Moisturisers", price: 1099, margin: 68, cap: 15, w: 0.22 },
+      { key: "c3", name: "Sunscreens", type: "Skincare › Sun care", price: 549, margin: 64, cap: 12, w: 0.22 },
+      { key: "c4", name: "Lip care", type: "Skincare › Lip care", price: 349, margin: 60, cap: 10, w: 0.14 },
+      { key: "c5", name: "Gift sets", type: "Beauty › Gift sets", price: 1799, margin: 58, cap: 12, w: 0.12 } ],
+    products: [["Vitamin C + Niacinamide Glow Serum 30ml","c1"],["10% Vitamin C Brightening Drops","c1"],["Ceramide Night Repair Cream 50g","c2"],["Retinal Overnight Recovery Balm","c2"],["SPF 50 PA++++ Invisible Sunscreen Gel","c3"],["Tinted Mineral Sunscreen SPF 40","c3"],["Peptide Lip Treatment – Tinted Rose","c4"],["Festive Glow Ritual Gift Box","c5"],["Gentle Gel Face Wash 100ml",null]] },
+  { id: "thread", name: "ThreadLine", vertical: "Apparel", perDay: 45, b0: -1.95, pRepeat: 0.25, pCod: 0.45,
+    dist: { region: [.30, .24, .24, .14, .08], source: [.22, .38, .14, .14, .12] },
+    other: { p: 0.45, lo: 399, hi: 899, margin: 0.28, label: "Basics & innerwear" },
+    cats: [
+      { key: "c1", name: "Fashion jewellery", type: "Accessories › Jewellery", price: 799, margin: 66, cap: 15, w: 0.20 },
+      { key: "c2", name: "Silk dupattas", type: "Apparel › Dupattas & stoles", price: 1499, margin: 62, cap: 15, w: 0.18 },
+      { key: "c3", name: "Kurta sets", type: "Apparel › Ethnic sets", price: 2499, margin: 56, cap: 12, w: 0.26 },
+      { key: "c4", name: "Co-ord sets", type: "Apparel › Co-ord sets", price: 1999, margin: 54, cap: 12, w: 0.20 },
+      { key: "c5", name: "Linen shirts", type: "Apparel › Shirts", price: 1299, margin: 50, cap: 10, w: 0.16 } ],
+    products: [["Kundan Drop Earrings – Antique Gold","c1"],["Oxidised Silver Layered Necklace","c1"],["Banarasi Silk Dupatta – Rani Pink","c2"],["Chanderi Kurta Set with Palazzo","c3"],["Block-print Cotton Kurta Set – Indigo","c3"],["Linen Blend Co-ord Set – Sage","c4"],["Relaxed Linen Shirt – Off White","c5"],["Mandarin Collar Linen Shirt – Olive","c5"],["Cotton Boxer Briefs – Pack of 3",null]] },
+  { id: "fuel", name: "FuelUp", vertical: "Sports nutrition", perDay: 26, b0: -1.55, pRepeat: 0.55, pCod: 0.25,
+    dist: { region: [.40, .26, .18, .09, .07], source: [.35, .20, .20, .08, .17] },
+    other: { p: 0.5, lo: 299, hi: 699, margin: 0.20, label: "Protein bars & snacks" },
+    cats: [
+      { key: "c1", name: "Shakers & gym gear", type: "Fitness › Accessories", price: 599, margin: 62, cap: 15, w: 0.18 },
+      { key: "c2", name: "Pre-workout", type: "Nutrition › Pre-workout", price: 1499, margin: 55, cap: 12, w: 0.18 },
+      { key: "c3", name: "Creatine", type: "Nutrition › Creatine", price: 899, margin: 52, cap: 10, w: 0.20 },
+      { key: "c4", name: "Plant protein", type: "Nutrition › Protein powder", price: 2299, margin: 47, cap: 10, w: 0.18 },
+      { key: "c5", name: "Whey protein 1kg", type: "Nutrition › Protein powder", price: 2799, margin: 42, cap: 10, w: 0.26 } ],
+    products: [["Leakproof Steel Shaker 700ml","c1"],["Lifting Straps – Padded Pair","c1"],["Citrus Pre-Workout – 30 Servings","c2"],["Electrolyte Hydration Mix – Lemon","c2"],["Micronised Creatine Monohydrate 250g","c3"],["Pea + Brown Rice Protein – Chocolate 1kg","c4"],["Whey Isolate 1kg – Kesar Pista","c5"],["Raw Whey Concentrate 1kg – Unflavoured","c5"],["Peanut Butter Protein Bar – Box of 6",null]] }
+];
+const MBYID = Object.fromEntries(MERCHANTS.map(m => [m.id, m]));
+
+function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const sig = x => 1 / (1 + Math.exp(-x));
+const pickW = (R, w) => { let x = R() * w.reduce((a, b) => a + b, 0); for (let i = 0; i < w.length; i++) { x -= w[i]; if (x <= 0) return i; } return w.length - 1; };
+const dateOf = day => { const d = new Date(START); d.setDate(d.getDate() + day); return d; };
+const dayBucket = day => { const d = dateOf(day); if (d.getDate() <= 7) return 2; const w = d.getDay(); return (w === 0 || w === 6) ? 1 : 0; };
+const seasonOf = day => day >= 81 ? 2 : (day >= 5 && day <= 14) ? 1 : 0;
+const SLOT_W = [.07, .17, .20, .24, .24, .08], SLOT_H = [[5, 9], [9, 12], [12, 16], [16, 20], [20, 24], [0, 5]];
+const cartValue = cart => cart.items.reduce((a, it) => a + it.price * it.qty, 0) + cart.other;
+const sizeBucket = (v, aov) => v < 0.5 * aov ? 0 : v < aov ? 1 : v < 2 * aov ? 2 : 3;
+
+function buildPopulation(m, seed) {
+  const R = mulberry32(seed), carts = [];
+  const wsum = m.cats.reduce((a, c) => a + c.w, 0);
+  const pickCat = () => { let x = R() * wsum; for (const c of m.cats) { x -= c.w; if (x <= 0) return c.key; } return m.cats[0].key; };
+  const pre = 1 - 0.15 - m.pCod * 0.85, PAY_W = [pre * .55, pre * .18, pre * .17, pre * .10, m.pCod * 0.85, 0.15];
+  let n = 0;
+  for (let day = 0; day < DAYS; day++) {
+    const se = seasonOf(day);
+    const k = Math.round(m.perDay * 1.5 * (0.85 + R() * 0.3) * (se === 2 ? 1.35 : se === 1 ? 1.2 : 1));
+    for (let j = 0; j < k; j++) {
+      const slot = pickW(R, SLOT_W), [h0, h1] = SLOT_H[slot], hour = h0 + Math.floor(R() * (h1 - h0)), minute = Math.floor(R() * 60);
+      const otherOnly = R() < 0.33;
+      const nCats = otherOnly ? 0 : R() < 0.62 ? 1 : (R() < 0.75 ? 2 : 3);
+      const set = new Set(); while (set.size < nCats) set.add(pickCat());
+      const items = [...set].map(key => { const c = m.cats.find(x => x.key === key); const qty = R() < 0.82 ? 1 : 2; const price = Math.round(c.price * (0.85 + R() * 0.3) / 10) * 10 - 1; const prods = m.products.filter(p => p[1] === key); return { key, price, qty, title: prods[Math.floor(R() * prods.length)][0] }; });
+      const other = (otherOnly || R() < m.other.p) ? Math.round((m.other.lo + R() * (m.other.hi - m.other.lo)) / 10) * 10 - 1 : 0;
+      const pay = pickW(R, PAY_W);
+      let status = 0;
+      if (pay <= 3 && R() < 0.35) status = pay === 0 ? (R() < .7 ? 2 : 1) : pay === 3 ? (R() < .6 ? 1 : 3) : (R() < .55 ? 3 : 1);
+      const f = [R() < m.pRepeat ? 1 : 0, pay, status, slot, dayBucket(day), se, pickW(R, m.dist.region), 0, pickW(R, [.72, .20, .08]), pickW(R, m.dist.source)];
+      carts.push({ id: m.id.slice(0, 2).toUpperCase() + "-" + (48210 + n * 7), day, hour, minute, items, other, f, u: R(), r: R(), r2: R() });
+      n++;
+    }
+  }
+  const aov = carts.reduce((a, c) => a + cartValue(c), 0) / carts.length;
+  carts.forEach(c => c.f[SIG_IDX.size] = sizeBucket(cartValue(c), aov));
+  carts.aov = aov;
+  return carts;
+}
+
+const ccfg = (cfg, key) => cfg.cats[key];
+const itemCap = (cfg, key) => { const c = ccfg(cfg, key); return Math.max(0, Math.min(c.cap / 100, c.margin / 100 - cfg.floor / 100)); };
+const inFlow = (cart, cfg) => cart.items.some(it => ccfg(cfg, it.key).eligible);
+const eligibleValue = (cart, cfg) => cart.items.reduce((a, it) => a + (ccfg(cfg, it.key).eligible ? it.price * it.qty : 0), 0);
+const maxCap = (cart, cfg) => Math.max(0, ...cart.items.filter(it => ccfg(cfg, it.key).eligible).map(it => itemCap(cfg, it.key)));
+const isBlocked = (cfg, f) => SIGNALS.some((sg, j) => cfg.blocks[sg.id + ":" + f[j]]);
+const MEANS = {};
+function sigEff(mid, f, cfg, decision) {
+  let b = MBYID[mid].b0, s = S0;
+  SIGNALS.forEach((sg, j) => {
+    if (decision && !cfg.signals[sg.id]) { b += MEANS[mid].B[j]; s += MEANS[mid].S[j]; }
+    else { b += sg.B[f[j]]; s += sg.S[f[j]]; }
+  });
+  return [b, s];
+}
+// One cart's curve on the 0.5% grid. pT = true response (simulated world), pD = what the agent's model predicts with the signals it may use.
+function cartCurves(m, cart, cfg) {
+  const its = cart.items.map(it => { const c = ccfg(cfg, it.key); return { v: it.price * it.qty, el: c.eligible, cap: c.eligible ? itemCap(cfg, it.key) : 0, mg: c.margin / 100, sens: (TYPES[c.type] ?? 0.15) * 0.5 }; });
+  let tot = 0, ws = 0, ev = 0, mc = 0; its.forEach(i => { tot += i.v; ws += i.v * i.sens; if (i.el) { ev += i.v; mc = Math.max(mc, i.cap); } });
+  const adj = tot ? ws / tot : 0;
+  const [bT, sT0] = sigEff(m.id, cart.f, cfg, false), [bD, sD0] = sigEff(m.id, cart.f, cfg, true);
+  const sT = Math.max(0.02, sT0 + adj), sD = Math.max(0.02, sD0 + adj);
+  const n = Math.floor(mc / 0.005 + 1e-9) + 1, pT = new Float64Array(n), pD = new Float64Array(n), mv = new Float64Array(n), sv = new Float64Array(n);
+  for (let k = 0; k < n; k++) {
+    const d = k * 0.005; let sav = 0, mvk = cart.other * m.other.margin;
+    for (const i of its) { const di = i.el ? Math.min(d, i.cap) : 0; sav += i.v * di; mvk += i.v * (i.mg - di); }
+    const g = 1 - Math.exp(-(ev > 0 ? sav / ev : 0) / TAU);
+    pT[k] = sig(bT + sT * g); pD[k] = sig(bD + sD * g); mv[k] = mvk; sv[k] = sav;
+  }
+  return { n, pT, pD, mv, sv, mc, ev };
+}
+const tierK = (cart, n) => { const v = cartValue(cart); return Math.min(n - 1, v < 1000 ? 10 : v < 2500 ? 15 : 20); };
+const phaseOf = day => day < 21 ? "exploring" : day < 46 ? "learning" : "optimising";
+const PHASE_LABEL = { exploring: "Exploring", learning: "Learning", optimising: "Optimising" };
+const EXPLORE_SHARE = { exploring: 1, learning: 0.45, optimising: 0.12 };
+const roundOffer = x => x <= 0.5 ? 0 : Math.max(5, Math.round(x / 5) * 5);
+
+/* ================= STATE ================= */
+const STORE_KEY = "mar-cfg-v4";
+function defaultCfg(m) {
+  const cats = {}; m.cats.forEach(c => cats[c.key] = { name: c.name, type: c.type, margin: c.margin, cap: c.cap, eligible: true });
+  const signals = {}; SIGNALS.forEach(s => signals[s.id] = true);
+  return { active: true, reviewFirst: true, floor: 25, channel: "whatsapp", optout: "Reply STOP to opt out.", cats, signals, blocks: {},
+    policy: "live", changes: [], mapping: m.products.map(([title, key]) => ({ title, key, status: "suggested" })) };
+}
+let CFG = {};
+function loadCfg() {
+  let saved = null; try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null"); } catch (e) { saved = null; }
+  MERCHANTS.forEach(m => { CFG[m.id] = (saved && saved[m.id]) ? Object.assign(defaultCfg(m), saved[m.id]) : defaultCfg(m); });
+}
+function saveCfg() { try { localStorage.setItem(STORE_KEY, JSON.stringify(CFG)); } catch (e) { /* per-viewer convenience only */ } }
+const POP = {};
+MERCHANTS.forEach((m, i) => {
+  const pop = POP[m.id] = buildPopulation(m, 2000 + i);
+  const B = SIGNALS.map(() => 0), S = SIGNALS.map(() => 0);
+  pop.forEach(c => SIGNALS.forEach((sg, j) => { B[j] += sg.B[c.f[j]]; S[j] += sg.S[c.f[j]]; }));
+  MEANS[m.id] = { B: B.map(x => x / pop.length), S: S.map(x => x / pop.length) };
+});
+
+const S = { merchant: "glow", view: "marketplace", range: 30, viewBy: "pay", openWhy: {},
+  curve: { f: [0, 4, 0, 3, 0, 0, 2, 1, 0, 1], cats: ["c1"] },
+  log: { page: 0, group: "all", outcome: "all", disc: "all", pay: "all", q: "" }, legend: { agent: true, flat: true, tier: true } };
+try { const v = localStorage.getItem("mar-ui-merchant"); if (v && MBYID[v]) S.merchant = v; } catch (e) {}
+
+/* ================= COMPUTE ================= */
+const CACHE = {};
+const cfgSig = cfg => JSON.stringify([cfg.cats, cfg.floor, cfg.signals, cfg.blocks]);
+function computeWith(id, cfg) {
+  const m = MBYID[id], pop = POP[id], rows = [];
+  for (const c of pop) {
+    if (!inFlow(c, cfg)) { rows.push({ c, inflow: false }); continue; }
+    const cv = cartCurves(m, c, cfg);
+    let kOpt = 0; for (let k = 1; k < cv.n; k++) if (cv.pD[k] * cv.mv[k] > cv.pD[kOpt] * cv.mv[kOpt] + 1e-9) kOpt = k;
+    const blocked = isBlocked(cfg, c.f), kPol = blocked ? 0 : kOpt, ph = phaseOf(c.day);
+    let group, k;
+    if (c.r < CONTROL_SHARE) { group = "control"; k = 0; }
+    else if (c.r < CONTROL_SHARE + (1 - CONTROL_SHARE) * EXPLORE_SHARE[ph]) { group = "testing"; k = blocked ? 0 : Math.min(cv.n - 1, Math.round(c.r2 * cv.mc * 200)); }
+    else { group = "optimised"; k = kPol; }
+    const p = cv.pT[k], conv = c.u < p, kF = Math.min(20, cv.n - 1), kTi = tierK(c, cv.n);
+    rows.push({ c, cv, inflow: true, group, k, kPol, blocked, d: k * 0.005, p, p0: cv.pT[0], pPol: cv.pT[kPol], conv, sav: cv.sv[k], savPol: cv.sv[kPol],
+      ep: p * cv.mv[k], ep0: cv.pT[0] * cv.mv[0], epPol: cv.pT[kPol] * cv.mv[kPol], profit: conv ? cv.mv[k] : 0,
+      epFlat: cv.pT[kF] * cv.mv[kF], pFlat: cv.pT[kF], svFlat: cv.sv[kF], epTier: cv.pT[kTi] * cv.mv[kTi], pTier: cv.pT[kTi], svTier: cv.sv[kTi] });
+  }
+  return { rows, inflowShare: rows.filter(r => r.inflow).length / pop.length };
+}
+function compute(id) {
+  const s = cfgSig(CFG[id]);
+  if (CACHE[id] && CACHE[id].sig === s) return CACHE[id].res;
+  const res = computeWith(id, CFG[id]); CACHE[id] = { sig: s, res }; return res;
+}
+const inWindow = r => r.c.day >= DAYS - S.range;
+function windowRows(id, res) { return (res || compute(id)).rows.filter(inWindow); }
+function strategyStats(id, res) {
+  const rs = windowRows(id, res).filter(r => r.inflow), N = Math.max(1, rs.length);
+  const pick = { control: r => [r.p0, r.ep0, 0], flat: r => [r.pFlat, r.epFlat, r.svFlat], tier: r => [r.pTier, r.epTier, r.svTier], agent: r => [r.pPol, r.epPol, r.savPol] };
+  const out = {};
+  for (const [k, f] of Object.entries(pick)) {
+    let P = 0, prof = 0, disc = 0; for (const r of rs) { const [p, ep, sv] = f(r); P += p; prof += ep; disc += p * sv; }
+    out[k] = { conv: P / N, profit1k: prof / N * 1000, disc1k: disc / N * 1000, discPerOrder: P ? disc / P : 0 };
+  }
+  for (const k in out) out[k].incr1k = out[k].profit1k - out.control.profit1k;
+  out.n = rs.length;
+  return out;
+}
+function bucketStats(id, j) {
+  const res = compute(id), all = res.rows.filter(r => r.inflow), rs = all.filter(inWindow), N = Math.max(1, rs.length), cfg = CFG[id];
+  return SIGNALS[j].levels.map((lvl, v) => {
+    const b = rs.filter(r => r.c.f[j] === v), n = b.length;
+    const nTest = all.filter(r => r.c.f[j] === v && r.group === "testing").length;
+    if (!n) return { v, lvl, n: 0, share: 0, nTest };
+    let p0 = 0, p1 = 0, inc = 0, off = 0, withD = 0, dep = 0;
+    b.forEach(r => { p0 += r.p0; p1 += r.pPol; inc += r.epPol - r.ep0; const o = roundOffer(r.savPol); off += o; if (o > 0) { withD++; dep += r.kPol * 0.005; } });
+    return { v, lvl, n, share: n / N, conv0: p0 / n, conv1: p1 / n, incr1k: inc / n * 1000, avgOffer: off / n, avgOfferGiven: withD ? off / withD : 0, avgDepth: withD ? dep / withD : 0, depthAll: dep / n, withD: withD / n, nTest,
+      conf: nTest >= 200 ? "High" : nTest >= 70 ? "Medium" : "Low", blocked: !!cfg.blocks[SIGNALS[j].id + ":" + v] };
+  });
+}
+function learnedRules(id) {
+  const cfg = CFG[id], out = [];
+  const st = bucketStats(id, SIG_IDX.status);
+  if (cfg.signals.status) {
+    const failed = st.slice(1).filter(b => b.n), n = failed.reduce((a, b) => a + b.n, 0);
+    if (n) { const noD = failed.reduce((a, b) => a + b.n * (1 - b.withD), 0) / n; out.push({ score: 99, text: `Failed payments (bank decline, UPI timeout, OTP): ${pct(noD, 0)} get a retry link with no discount. These shoppers had already chosen to pay.` }); }
+  }
+  SIGNALS.forEach((sg, j) => {
+    if (sg.id === "status" || !cfg.signals[sg.id]) return;
+    const bs = bucketStats(id, j).filter(b => b.n >= 25 && !b.blocked);
+    if (bs.length < 2) return;
+    const hi = bs.reduce((a, b) => b.depthAll > a.depthAll ? b : a), lo = bs.reduce((a, b) => b.depthAll < a.depthAll ? b : a);
+    const spread = hi.depthAll - lo.depthAll; if (spread < 0.012) return;
+    const desc = b => b.withD < 0.3 ? "mostly get a reminder only (" + pct(b.withD, 0) + " get an offer)" : pct(b.withD, 0) + " get an offer, avg " + pctD(b.avgDepth) + " (" + inr(b.avgOfferGiven) + ")";
+    out.push({ score: spread * 1000, text: `${sg.label}: ${hi.lvl}: ${desc(hi)}. ${lo.lvl}: ${desc(lo)}.` });
+  });
+  return out.sort((a, b) => b.score - a.score).slice(0, 5).map(o => o.text);
+}
+function drivers(id, f) {
+  const cfg = CFG[id], ds = [];
+  SIGNALS.forEach((sg, j) => {
+    if (!cfg.signals[sg.id]) return;
+    if (sg.id === "status" && f[j] > 0) { ds.push({ w: 9, t: sg.levels[f[j]], d: "payment failed, high intent" }); return; }
+    const dS = sg.S[f[j]] - MEANS[id].S[j];
+    if (Math.abs(dS) >= 0.06) ds.push({ w: Math.abs(dS), t: sg.levels[f[j]], d: dS > 0 ? "more price-sensitive" : "less price-sensitive" });
+  });
+  return ds.sort((a, b) => b.w - a.w).slice(0, 3);
+}
+
+/* ================= HELPERS ================= */
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = s => String(s).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+const inr = x => (x < 0 ? "−₹" : "₹") + Math.round(Math.abs(x)).toLocaleString("en-IN");
+const inrSigned = x => (x >= 0 ? "+" : "−") + "₹" + Math.round(Math.abs(x)).toLocaleString("en-IN");
+const pct = (x, dp = 1) => (x * 100).toFixed(dp) + "%";
+const pctD = d => (Math.round(d * 1000) / 10).toFixed(1).replace(/\.0$/, "") + "%";
+const fmtDate = day => dateOf(day).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+const fmtTime = (h, mi) => { const am = h < 12; const hh = ((h + 11) % 12) + 1; return hh + ":" + String(mi).padStart(2, "0") + (am ? " am" : " pm"); };
+const periodLabel = () => fmtDate(DAYS - S.range) + " – " + fmtDate(DAYS - 1);
+const tok = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const M = () => MBYID[S.merchant];
+const C = () => CFG[S.merchant];
+const catName = key => C().cats[key].name;
+const lv = (id, f) => SIGNALS[SIG_IDX[id]].levels[f[SIG_IDX[id]]];
+let toastT;
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 3600); }
+function closeOverlay() { $("#overlay").innerHTML = ""; document.removeEventListener("keydown", escClose); }
+function escClose(e) { if (e.key === "Escape") closeOverlay(); }
+function bindClose() { $$("[data-close]", $("#overlay")).forEach(b => b.onclick = closeOverlay); document.addEventListener("keydown", escClose); }
+function openModal(title, bodyHtml, footHtml) {
+  $("#overlay").innerHTML = `<div class="scrim" data-close></div><div class="modal" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="drawer-head"><h2>${esc(title)}</h2><button class="x" data-close aria-label="Close">✕</button></div><div class="drawer-body">${bodyHtml}</div>${footHtml ? `<div class="modal-foot">${footHtml}</div>` : ""}</div>`;
+  bindClose(); return $(".modal", $("#overlay"));
+}
+function openDrawer(title, bodyHtml, headExtra = "") {
+  $("#overlay").innerHTML = `<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="drawer-head"><div class="row"><h2>${esc(title)}</h2>${headExtra}</div><button class="x" data-close aria-label="Close">✕</button></div><div class="drawer-body">${bodyHtml}</div></aside>`;
+  bindClose(); return $(".drawer", $("#overlay"));
+}
+const GROUP_PILL = { control: '<span class="pill p-control">Control</span>', testing: '<span class="pill p-test">Testing</span>', optimised: '<span class="pill p-info">Optimised</span>' };
+function invalidate() { delete CACHE[S.merchant]; saveCfg(); }
+function markChanged(what) {
+  const cfg = C(); cfg.changes = [what, ...cfg.changes.filter(x => x !== what)].slice(0, 6);
+  if (cfg.reviewFirst) cfg.policy = "pending";
+  invalidate();
+}
+async function saveFile(filename, data, mime) {
+  let dl = null; try { dl = window.claude && window.claude.use ? await window.claude.use("downloads") : null; } catch (e) { dl = null; }
+  if (dl) { try { await dl.save({ filename, data }); return "saved"; } catch (e) { return e && e.code === "declined" ? "declined" : "failed"; } }
+  try { const url = URL.createObjectURL(data instanceof Blob ? data : new Blob([data], { type: mime })); const a = document.createElement("a"); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000); return "saved"; }
+  catch (e) { return "failed"; }
+}
+
+/* ================= AI (live via Claude when the page runs inside claude.ai; computed answers elsewhere) ================= */
+const AI = { fn: null, state: "checking" };
+(async () => {
+  try { const s = window.claude && window.claude.use ? await window.claude.use("sample") : null; AI.fn = s; AI.state = s ? "live" : "offline"; }
+  catch (e) { AI.state = "offline"; }
+  renderAiMode();
+})();
+function renderAiMode() { $$(".aiMode").forEach(el => el.innerHTML = AI.state === "live" ? '<span class="pill p-good mode">Live AI</span>' : AI.state === "checking" ? '<span class="pill p-mute mode">Checking AI…</span>' : '<span class="pill p-mute mode" title="Answers are calculated from this page\'s numbers">Computed answers</span>'); }
+async function aiText(prompt, onText, signal) { if (!AI.fn) throw { code: "not_granted" }; return AI.fn(prompt, { modelTier: "quick", onText, signal }); }
+async function aiJson(prompt) { if (!AI.fn) throw { code: "not_granted" }; return AI.fn.json(prompt, { modelTier: "quick" }); }
+function aiFailed(e) { if (["not_granted", "sampling_disabled", "not_declared", "capability_disabled", "capability_removed"].includes(e && e.code)) { AI.state = "offline"; AI.fn = null; renderAiMode(); } }
+
+/* ================= ROUTER ================= */
+const TITLES = { marketplace: "Marketplace", setup: "Setup", performance: "Performance", curves: "Response curves", recs: "Recommendations", log: "Cart log" };
+let charts = [];
+function killCharts() { charts.forEach(c => c.destroy()); charts = []; }
+function go(view, opts = {}) {
+  S.view = view; Object.assign(S, opts);
+  $$("#agentNav button").forEach(b => b.setAttribute("aria-current", b.dataset.view === view ? "page" : "false"));
+  $("#crumb").textContent = TITLES[view];
+  $("#nav").classList.remove("open");
+  render(); window.scrollTo(0, 0);
+}
+function render() {
+  killCharts();
+  const m = M(), cfg = C(); $("#navMerchant").textContent = m.name; $("#navVertical").textContent = m.vertical + " · D2C"; $("#navMark").textContent = m.name[0];
+  const v = $("#view");
+  let top = "";
+  if (!cfg.active && S.view !== "marketplace") top += `<div class="banner warn"><span><b>Agent paused.</b> No reminders or offers are going out for ${esc(m.name)}. Your data and control group are kept.</span><button class="btn" id="resumeBtn">Resume agent</button></div>`;
+  if (cfg.policy === "pending" && ["setup", "recs", "performance"].includes(S.view)) top += `<div class="banner warn"><span><b>Changes waiting for your approval:</b> ${esc(cfg.changes.slice(0, 3).join("; "))}${cfg.changes.length > 3 ? "…" : ""}. Numbers on this page already include them.</span><div class="row"><button class="btn" id="discardPolicy">Discard</button><button class="btn good" id="approvePolicy">Approve and go live</button></div></div>`;
+  v.innerHTML = top + VIEWS[S.view]();
+  const rb = $("#resumeBtn"); if (rb) rb.onclick = () => { cfg.active = true; saveCfg(); toast("Agent resumed."); render(); };
+  const ap = $("#approvePolicy"); if (ap) ap.onclick = () => { cfg.policy = "live"; cfg.changes = []; saveCfg(); toast("Approved. The new policy applies to carts from now on."); render(); };
+  const dp = $("#discardPolicy"); if (dp) dp.onclick = () => { const keep = { active: cfg.active, reviewFirst: cfg.reviewFirst, channel: cfg.channel, optout: cfg.optout, mapping: cfg.mapping }; CFG[S.merchant] = Object.assign(defaultCfg(m), keep); invalidate(); toast("Changes discarded."); render(); };
+  BIND[S.view] && BIND[S.view]();
+  renderAiMode();
+}
+
+/* ================= VIEW: MARKETPLACE ================= */
+const ICONS = {
+  cart: '<svg viewBox="0 0 24 24"><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.5L21 8H6"/><circle cx="10" cy="20" r="1"/><circle cx="17" cy="20" r="1"/></svg>',
+  repeat: '<svg viewBox="0 0 24 24"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></svg>',
+  shield: '<svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>',
+  cash: '<svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>' };
+VIEWS.marketplace = () => {
+  const st = strategyStats(S.merchant), m = M();
+  const others = [["Abandoned cart conversion", "Follows up with shoppers who left checkout, using offers you already set up.", ICONS.cart],
+    ["Subscription recovery", "Retries failed subscription payments and nudges customers.", ICONS.repeat],
+    ["Dispute responder", "Drafts evidence and responses for chargebacks.", ICONS.shield],
+    ["Cashflow insights", "Forecasts settlements and flags cash gaps.", ICONS.cash]];
+  return `<div class="page-head"><div><h1>Agent Studio</h1><p>Agents that take on parts of your payments work. You stay in control: review what they recommend, change limits, or pause them at any time.</p></div>
+    <div class="seg" role="group" aria-label="Filter"><button aria-pressed="true">All agents</button><button aria-pressed="false" id="tabInstalled">Installed</button></div></div>
+  <section class="agent-feature" aria-label="Margin-Aware Cart Recovery">
+    <div>
+      <div class="row"><span class="pill p-info">New concept</span><span class="pill p-good">Installed</span></div>
+      <h2 style="margin-top:10px">Margin-Aware Cart Recovery</h2>
+      <p class="muted" style="margin-top:6px;max-width:62ch">Decides how much discount, if any, each abandoned cart should get, so you recover <b>profit</b>, not just orders. It only acts on your highest-margin categories and never goes past your limits.</p>
+      <ul>
+        <li>Reads 10 checkout signals, such as payment method, failed-payment reason, time, region tier and traffic source</li>
+        <li>Learns how each kind of cart responds to discounts, from your carts and pooled product-type data</li>
+        <li>Keeps 10% of carts on reminder-only so you can see what discounts actually add</li>
+      </ul>
+      <div class="row" style="margin-top:16px"><button class="btn primary" id="openAgent">Open agent</button><button class="btn" id="agentDetails">View details</button><button class="btn ghost" id="agentHow">How it works</button></div>
+    </div>
+    <div class="agent-meta">
+      <span class="label">At ${esc(m.name)}, ${periodLabel()}</span>
+      <div><span class="muted">Extra profit vs reminder-only</span><b class="num">${inrSigned(st.agent.incr1k)}</b></div>
+      <div><span class="muted">Same, with a flat 10% rule</span><b class="num">${inrSigned(st.flat.incr1k)}</b></div>
+      <div><span class="muted">Discount spend vs flat 10%</span><b class="num">${pct(st.agent.disc1k / st.flat.disc1k - 1, 0)}</b></div>
+      <span class="faint" style="font-size:12px">Per 1,000 abandoned carts in scope. Synthetic data.</span>
+    </div>
+  </section>
+  <div><h2 style="margin-bottom:12px">Other agents</h2>
+  <div class="grid g4">${others.map(([t, d, ic]) => `<div class="card agent-card"><div class="ico">${ic}</div><h3>${t}</h3><p>${d}</p><div class="foot"><span class="pill p-mute plain">Shown for context</span></div></div>`).join("")}</div></div>`;
+};
+BIND.marketplace = () => {
+  $("#openAgent").onclick = () => go("recs");
+  $("#agentHow").onclick = openHow;
+  $("#tabInstalled").onclick = () => toast("Only Margin-Aware Cart Recovery is installed in this prototype.");
+  $("#agentDetails").onclick = () => {
+    const modal = openModal("Margin-Aware Cart Recovery", `
+      <div><span class="label">What it does</span><p style="margin-top:6px">When a shopper leaves checkout with one of your top-margin categories in the cart, the agent sends a reminder. It decides whether to add a discount, and how much, by predicting which offer earns the most profit for that cart.</p></div>
+      <div><span class="label">How it differs from abandoned cart conversion</span>
+        <div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th></th><th>Cart conversion</th><th>This agent</th></tr></thead><tbody>
+        <tr><td>Goal</td><td>Recover the order</td><td>Recover the most profit</td></tr>
+        <tr><td>Discount</td><td>Picks from your coupons up to your cap</td><td>Sets the amount from evidence, often zero</td></tr>
+        <tr><td>Failed payments</td><td>Same offer as other carts</td><td>Retry link first, discount only if it pays</td></tr>
+        <tr><td>Proof it works</td><td>Not shown</td><td>Always-on 10% reminder-only group</td></tr></tbody></table></div></div>
+      <div><span class="label">Permissions you granted</span>
+        <div class="checks" style="margin-top:8px">
+          <div><span class="ok">✓</span><span>Read abandoned checkout events, cart items and payment attempt results</span></div>
+          <div><span class="ok">✓</span><span>Read the margins and limits you enter in Setup (never shared with other merchants)</span></div>
+          <div><span class="ok">✓</span><span>Create single-use coupons within your limits</span></div>
+          <div><span class="ok">✓</span><span>Send messages through your connected WhatsApp or email account, only to shoppers who opted in</span></div>
+          <div><span class="no">✕</span><span>No device data, no addresses (region tier only), no shopper lists leave your account</span></div></div></div>`,
+      `<button class="btn" data-close>Close</button><button class="btn primary" id="toSetup">Configure</button>`);
+    $$("[data-close]", modal).forEach(b => b.onclick = closeOverlay);
+    $("#toSetup").onclick = () => { closeOverlay(); go("setup"); };
+  };
+};
+
+/* ================= VIEW: SETUP ================= */
+VIEWS.setup = () => {
+  const cfg = C(), m = M();
+  const keys = Object.keys(cfg.cats).sort((a, b) => cfg.cats[b].margin - cfg.cats[a].margin);
+  const typeOpts = sel => Object.keys(TYPES).map(t => `<option ${t === sel ? "selected" : ""}>${esc(t)}</option>`).join("");
+  return `<div class="page-head"><div><h1>Setup</h1><p>Tell the agent which categories it may discount, how far it can go, and which signals it may use. Every change recalculates the recommendations.</p></div>
+    <div class="row"><button class="btn ghost" id="resetDemo">Reset demo data</button></div></div>
+  <div class="card"><div class="row" style="justify-content:space-between;gap:20px">
+    <label class="switch"><input type="checkbox" id="activeSw" ${cfg.active ? "checked" : ""}><span class="track"></span><span><b>Agent ${cfg.active ? "active" : "paused"}</b><br><span class="faint" style="font-size:12.5px">Pausing stops all reminders and offers immediately.</span></span></label>
+    <label class="switch"><input type="checkbox" id="reviewSw" ${cfg.reviewFirst ? "checked" : ""}><span class="track"></span><span><b>Review before going live</b><br><span class="faint" style="font-size:12.5px">Changes to limits, signals or groups wait for your approval.</span></span></label>
+  </div></div>
+  <div class="setup-grid">
+    <div class="grid">
+      <div class="card"><div class="card-head"><div><h2>Categories in scope</h2><p>Your top five categories by margin. The agent only runs on abandoned carts that contain at least one of these, and only discounts these items.</p></div></div>
+        <div class="tbl-wrap"><table class="cat-tbl"><thead><tr><th>In scope</th><th>Category</th><th>Product type (shared)</th><th class="r">Margin %</th><th class="r">Max discount %</th></tr></thead><tbody>
+        ${keys.map(k => { const c = cfg.cats[k]; const eff = Math.max(0, Math.min(c.cap, c.margin - cfg.floor));
+          return `<tr data-key="${k}"><td><label class="switch"><input type="checkbox" data-f="eligible" ${c.eligible ? "checked" : ""} aria-label="Include ${esc(c.name)}"><span class="track"></span></label></td>
+          <td><input type="text" data-f="name" value="${esc(c.name)}" aria-label="Category name"></td>
+          <td><select data-f="type" aria-label="Product type">${typeOpts(c.type)}</select></td>
+          <td class="r"><input type="number" data-f="margin" min="1" max="95" step="1" value="${c.margin}" aria-label="Margin percent"></td>
+          <td class="r"><input type="number" data-f="cap" min="0" max="50" step="0.5" value="${c.cap}" aria-label="Max discount percent">${eff < c.cap ? `<div class="warn-txt">Limited to ${eff}% by your margin floor</div>` : ""}</td></tr>`; }).join("")}
+        </tbody></table></div>
+        <div class="drop" id="drop" style="margin-top:14px"><div><b>Update from a file</b><p class="muted" style="font-size:12.5px">Upload an Excel, CSV or PDF with category, product type, margin % and max discount %. You'll see the changes before anything is saved.</p></div>
+          <div class="row"><button class="btn" id="tplBtn">Download template</button><button class="btn primary" id="upBtn"><svg viewBox="0 0 24 24"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg>Upload PDF or Excel</button></div></div>
+        <p class="faint" style="font-size:12px;margin-top:10px">Margins stay private to ${esc(m.name)}. Only the product type is shared, so the agent can learn how shoppers respond to discounts on that type across stores.</p>
+      </div>
+      <div class="card"><div class="card-head"><div><h2>Signals the agent may use</h2><p>Switch off any signal and the agent stops using it for offers. You'll see what it costs.</p></div></div>
+        <div class="sig-list">${SIGNALS.map(sg => `<div class="setting"><div><div class="row" style="gap:8px"><b>${sg.label}</b>${SCOPE_PILL[sg.scope]}</div><p>${esc(sg.note)}</p></div><label class="switch"><input type="checkbox" data-sig="${sg.id}" ${cfg.signals[sg.id] ? "checked" : ""} aria-label="Use ${esc(sg.label)}"><span class="track"></span></label></div>`).join("")}
+          <div class="setting"><div><div class="row" style="gap:8px"><b>Product categories in the cart</b><span class="pill p-mute plain">This checkout</span></div><p>Always used. Each of your five categories is a yes/no input.</p></div><span class="pill p-good plain">Always on</span></div>
+          <div class="setting"><div><div class="row" style="gap:8px"><b>Device and phone model</b><span class="pill p-bad plain">Never used</span></div><p>Excluded by design. It predicts spending power, so pricing on it would treat shoppers unfairly.</p></div><span class="pill p-mute plain">Off</span></div>
+        </div></div>
+      <div class="card"><div class="card-head"><div><h2>Product mapping</h2><p>The agent matched your product titles to categories. Accept or change each one.</p></div><div class="row"><span class="aiMode"></span><button class="btn" id="remap">Re-run matching</button><button class="btn" id="acceptAll">Accept all</button></div></div>
+        <div class="tbl-wrap"><table><thead><tr><th>Product title</th><th>Category</th><th>Status</th></tr></thead><tbody>
+        ${cfg.mapping.map((p, i) => `<tr><td>${esc(p.title)}</td><td><select data-map="${i}" aria-label="Category for ${esc(p.title)}"><option value="" ${p.key ? "" : "selected"}>Not in scope</option>${keys.map(k => `<option value="${k}" ${p.key === k ? "selected" : ""}>${esc(cfg.cats[k].name)}</option>`).join("")}</select></td>
+          <td>${p.status === "accepted" ? '<span class="pill p-good">Accepted</span>' : p.status === "edited" ? '<span class="pill p-info">Edited by you</span>' : '<span class="pill p-warn">Suggested</span>'}</td></tr>`).join("")}
+        </tbody></table></div></div>
+    </div>
+    <div class="grid">
+      <div class="card"><div class="card-head"><div><h2>Guardrails</h2><p>Limits the agent can never cross.</p></div></div>
+        <div class="setting"><div><b>Control group</b><p>Share of carts that get a reminder with no discount, so extra profit can be measured.</p></div><span class="pill p-control plain">10% · fixed</span></div>
+        <div class="setting"><div><b>Minimum margin after discount</b><p>No item is discounted below this margin, whatever its max discount.</p></div><label class="row" style="gap:6px"><input type="number" id="floorIn" min="0" max="80" step="1" value="${cfg.floor}" aria-label="Minimum margin percent"><span>%</span></label></div>
+        <div class="setting"><div><b>How offers are shown</b><p>As a rupee saving, rounded to the nearest ₹5, e.g. "Save ₹75".</p></div><span class="pill p-mute plain">Rupees</span></div>
+        <div class="setting"><div><b>Failed payments</b><p>Always send a one-tap retry link. A discount is added only where it pays.</p></div><span class="pill p-good plain">On</span></div>
+        <div class="setting"><div><b>Only message shoppers who opted in</b><p>Carts without marketing consent are skipped.</p></div><label class="switch"><input type="checkbox" checked disabled aria-label="Consent required"><span class="track"></span></label></div>
+        <div class="setting" style="display:grid;gap:6px"><b>Opt-out line</b><input type="text" id="optoutIn" value="${esc(cfg.optout)}" aria-label="Opt-out text"></div>
+      </div>
+      <div class="card"><div class="card-head"><div><h2>Channel</h2><p>Where reminders are sent.</p></div></div>
+        <div class="radio-list">
+          <label><input type="radio" name="ch" value="whatsapp" ${cfg.channel === "whatsapp" ? "checked" : ""}><span><b>WhatsApp</b><br><span class="faint" style="font-size:12.5px">Connected · +91 80••• ••412</span></span></label>
+          <label><input type="radio" name="ch" value="email" ${cfg.channel === "email" ? "checked" : ""}><span><b>Email</b><br><span class="faint" style="font-size:12.5px">Connected · care@${m.id}.example</span></span></label>
+          <label class="dis"><input type="radio" name="ch" value="voice" disabled><span><b>Voice call</b><br><span class="faint" style="font-size:12.5px">Coming later</span></span></label>
+        </div></div>
+    </div>
+  </div>`;
+};
+BIND.setup = () => {
+  const cfg = C();
+  $("#activeSw").onchange = e => { cfg.active = e.target.checked; saveCfg(); toast(cfg.active ? "Agent resumed." : "Agent paused. No messages will go out."); render(); };
+  $("#reviewSw").onchange = e => { cfg.reviewFirst = e.target.checked; if (!cfg.reviewFirst) { cfg.policy = "live"; cfg.changes = []; } saveCfg(); toast(cfg.reviewFirst ? "Changes will wait for your approval." : "Changes now go live automatically."); render(); };
+  $$(".cat-tbl tbody tr").forEach(tr => {
+    const key = tr.dataset.key;
+    $$("[data-f]", tr).forEach(inp => inp.onchange = () => {
+      const f = inp.dataset.f, c = cfg.cats[key];
+      if (f === "eligible") { if (!inp.checked && Object.values(cfg.cats).filter(x => x.eligible).length <= 1) { inp.checked = true; toast("Keep at least one category in scope."); return; } c.eligible = inp.checked; markChanged(c.name + (c.eligible ? " back in scope" : " removed from scope")); }
+      else if (f === "name") { c.name = inp.value.trim() || c.name; saveCfg(); }
+      else if (f === "type") { c.type = inp.value; markChanged(c.name + " product type changed"); }
+      else { const v = parseFloat(inp.value); if (isNaN(v)) { inp.value = c[f]; return; } c[f] = Math.max(0, Math.min(f === "margin" ? 95 : 50, v)); markChanged(c.name + (f === "margin" ? " margin " : " max discount ") + c[f] + "%"); }
+      toast("Saved. Recommendations recalculated."); render();
+    });
+  });
+  $$("[data-sig]").forEach(inp => inp.onchange = () => {
+    const id = inp.dataset.sig, sg = SIGNALS[SIG_IDX[id]];
+    const before = strategyStats(S.merchant).agent.incr1k;
+    cfg.signals[id] = inp.checked; markChanged(sg.label + " signal " + (inp.checked ? "on" : "off"));
+    const after = strategyStats(S.merchant).agent.incr1k;
+    toast(`${sg.label} ${inp.checked ? "on" : "off"}. Extra profit changes by ${inrSigned(after - before)} per 1,000 carts.`); render();
+  });
+  $("#floorIn").onchange = e => { const v = parseFloat(e.target.value); if (!isNaN(v)) { cfg.floor = Math.max(0, Math.min(80, v)); markChanged("margin floor " + cfg.floor + "%"); toast("Margin floor updated. Recommendations recalculated."); render(); } };
+  $("#optoutIn").onchange = e => { cfg.optout = e.target.value.trim() || "Reply STOP to opt out."; saveCfg(); toast("Opt-out line saved."); };
+  $$('input[name="ch"]').forEach(r => r.onchange = () => { cfg.channel = r.value; saveCfg(); toast("Reminders will go out on " + (r.value === "email" ? "email." : "WhatsApp.")); });
+  $$("[data-map]").forEach(s => s.onchange = () => { const p = cfg.mapping[+s.dataset.map]; p.key = s.value || null; p.status = "edited"; saveCfg(); render(); });
+  $("#acceptAll").onclick = () => { cfg.mapping.forEach(p => { if (p.status === "suggested") p.status = "accepted"; }); saveCfg(); toast("All suggestions accepted."); render(); };
+  $("#remap").onclick = remapWithAI;
+  $("#resetDemo").onclick = () => { CFG[S.merchant] = defaultCfg(M()); invalidate(); toast("Demo data reset for " + M().name + "."); render(); };
+  $("#upBtn").onclick = () => $("#fileIn").click();
+  $("#tplBtn").onclick = downloadTemplate;
+  const drop = $("#drop");
+  drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+  drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); };
+};
+async function remapWithAI() {
+  const cfg = C(), btn = $("#remap");
+  const cats = Object.entries(cfg.cats).map(([k, c]) => ({ key: k, name: c.name, type: c.type }));
+  const fallback = () => { cfg.mapping.forEach(p => { const t = guessType(p.title); const hit = cats.find(c => c.type === t) || cats.find(c => p.title.toLowerCase().includes(c.name.toLowerCase().split(" ")[0])); if (p.status !== "edited") { p.key = hit ? hit.key : null; p.status = "suggested"; } }); };
+  btn.disabled = true; btn.textContent = "Matching…";
+  try {
+    if (!AI.fn) throw { code: "not_granted" };
+    const out = await aiJson(`Map each product title to one category key, or null if it fits none. Categories: ${JSON.stringify(cats)}. Titles: ${JSON.stringify(cfg.mapping.map(p => p.title))}. Reply with only a JSON array of {"title": string, "key": string|null} in the same order.`);
+    if (Array.isArray(out)) out.forEach((o, i) => { const p = cfg.mapping[i]; if (p && p.status !== "edited") { p.key = cats.some(c => c.key === o.key) ? o.key : null; p.status = "suggested"; } });
+    toast("Matched with live AI. Review and accept.");
+  } catch (e) { aiFailed(e); fallback(); toast("Matched by product type. Review and accept."); }
+  saveCfg(); render();
+}
+
+/* ---------- upload ---------- */
+const LIBS = {};
+function loadScript(src) { return LIBS[src] || (LIBS[src] = new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("load")); document.head.appendChild(s); })); }
+const XLSX_URL = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+const PDF_URL = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js";
+const PDFW_URL = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+$("#fileIn").onchange = e => { const f = e.target.files[0]; e.target.value = ""; if (f) handleFile(f); };
+const numOf = v => { if (v === null || v === undefined || v === "") return NaN; if (typeof v === "number") return v <= 1 && v > 0 ? v * 100 : v; const n = parseFloat(String(v).replace(/[^0-9.]/g, "")); return n; };
+function rowsFromTable(aoa) {
+  const hi = aoa.findIndex(r => r.some(c => /margin/i.test(String(c))));
+  if (hi < 0) return [];
+  const h = aoa[hi].map(c => String(c).toLowerCase());
+  const col = re => h.findIndex(c => re.test(c));
+  const iName = col(/categ|name|product line/), iType = col(/type/), iMargin = col(/margin/), iCap = col(/max|cap|discount/);
+  if (iName < 0 || iMargin < 0) return [];
+  return aoa.slice(hi + 1).filter(r => r[iName] && !isNaN(numOf(r[iMargin]))).map(r => ({ name: String(r[iName]).trim(), type: iType >= 0 ? String(r[iType] || "").trim() : "", margin: numOf(r[iMargin]), cap: iCap >= 0 ? numOf(r[iCap]) : NaN }));
+}
+function rowsFromText(text) {
+  const out = [];
+  text.split(/\n/).forEach(line => {
+    line = line.replace(/\s*(?:>|›)\s*/g, " › ");
+    const nums = [...line.matchAll(/(\d{1,2}(?:\.\d+)?)\s*%/g)].map(x => parseFloat(x[1]));
+    if (nums.length < 2) return;
+    const name = line.split(/\d{1,2}(?:\.\d+)?\s*%/)[0].replace(/[|,;:\t]+/g, " ").trim();
+    if (!name || /margin/i.test(name)) return;
+    const typeHit = Object.keys(TYPES).find(t => name.includes(t));
+    out.push({ name: typeHit ? name.replace(typeHit, "").trim() : name, type: typeHit || "", margin: nums[0], cap: nums[1] });
+  });
+  return out;
+}
+async function pdfText(file) {
+  await loadScript(PDFW_URL); await loadScript(PDF_URL);
+  const lib = window.pdfjsLib; lib.GlobalWorkerOptions.workerSrc = PDFW_URL;
+  const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  let text = "";
+  for (let p = 1; p <= Math.min(doc.numPages, 10); p++) {
+    const pg = await doc.getPage(p), tc = await pg.getTextContent();
+    const lines = {}; tc.items.forEach(it => { const y = Math.round(it.transform[5]); (lines[y] = lines[y] || []).push(it); });
+    Object.keys(lines).sort((a, b) => b - a).forEach(y => { text += lines[y].sort((a, b) => a.transform[4] - b.transform[4]).map(i => i.str).join(" ") + "\n"; });
+  }
+  return text;
+}
+async function handleFile(file) {
+  const name = file.name.toLowerCase();
+  toast("Reading " + file.name + "…");
+  let rows = [], text = "";
+  try {
+    if (/\.(xlsx|xls|csv)$/.test(name)) {
+      await loadScript(XLSX_URL);
+      const wb = window.XLSX.read(await file.arrayBuffer(), { type: "array" });
+      for (const sn of wb.SheetNames) { rows = rowsFromTable(window.XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true })); if (rows.length) break; }
+    } else if (name.endsWith(".pdf")) {
+      text = await pdfText(file); rows = rowsFromText(text);
+    } else { toast("Use an Excel, CSV or PDF file."); return; }
+  } catch (e) { toast("Couldn't open that file. Try the template instead."); return; }
+  if (!rows.length && text && AI.fn) {
+    try { const out = await aiJson(`Extract product categories from this document. Reply with only a JSON array of {"name": string, "type": string, "margin": number (percent), "cap": number (max discount percent, null if absent)}.\n\n${text.slice(0, 20000)}`); if (Array.isArray(out)) rows = out.map(o => ({ name: String(o.name || ""), type: String(o.type || ""), margin: +o.margin, cap: o.cap == null ? NaN : +o.cap })).filter(r => r.name && !isNaN(r.margin)); }
+    catch (e) { aiFailed(e); }
+  }
+  if (!rows.length) { toast("No category rows found. Columns needed: category, margin %, max discount %."); return; }
+  showDiff(file.name, rows);
+}
+function showDiff(fname, rows) {
+  const cfg = C();
+  rows.forEach(r => { if (!TYPES.hasOwnProperty(r.type)) { const hit = Object.keys(TYPES).find(t => r.type && t.toLowerCase().includes(r.type.toLowerCase())); r.type = hit || guessType(r.name + " " + r.type); } if (isNaN(r.cap)) r.cap = 10; r.margin = Math.min(95, Math.max(1, r.margin)); r.cap = Math.min(50, Math.max(0, r.cap)); });
+  const more = rows.length > 5;
+  const top = rows.sort((a, b) => b.margin - a.margin).slice(0, 5);
+  const cur = Object.entries(cfg.cats).sort((a, b) => b[1].margin - a[1].margin);
+  const find = n => cur.find(([k, c]) => c.name.toLowerCase() === n.toLowerCase());
+  const removed = cur.filter(([k, c]) => !top.some(r => r.name.toLowerCase() === c.name.toLowerCase()));
+  const cell = (o, n, suf = "%") => o === undefined ? `<span class="diff-chg">${n}${suf}</span>` : o === n ? `${n}${suf}` : `<span class="faint">${o}${suf}</span> → <span class="diff-chg">${n}${suf}</span>`;
+  const body = `<p class="muted">From <b>${esc(fname)}</b>. ${more ? "The file had " + rows.length + " categories; the top five by margin are kept. " : ""}Nothing changes until you confirm.</p>
+    <div class="tbl-wrap"><table><thead><tr><th>Category</th><th>Product type</th><th class="r">Margin</th><th class="r">Max discount</th></tr></thead><tbody>
+    ${top.map(r => { const f = find(r.name); const o = f ? f[1] : null; return `<tr class="${o ? "" : "diff-new"}"><td>${esc(r.name)} ${o ? "" : '<span class="pill p-good plain">New</span>'}</td><td>${o && o.type === r.type ? esc(r.type) : `<span class="diff-chg">${esc(r.type)}</span>`}</td><td class="r num">${cell(o ? o.margin : undefined, r.margin)}</td><td class="r num">${cell(o ? o.cap : undefined, r.cap)}</td></tr>`; }).join("")}
+    ${removed.map(([k, c]) => `<tr><td><s class="faint">${esc(c.name)}</s> <span class="pill p-bad plain">Removed</span></td><td class="faint">${esc(c.type)}</td><td class="r faint num">${c.margin}%</td><td class="r faint num">${c.cap}%</td></tr>`).join("")}
+    </tbody></table></div>`;
+  openModal("Review changes", body, `<button class="btn" id="discard">Discard</button><button class="btn primary" id="confirmUp">Confirm and update</button>`);
+  $("#discard").onclick = () => { closeOverlay(); toast("No changes made."); };
+  $("#confirmUp").onclick = () => {
+    const keys = cur.map(([k]) => k), used = new Set();
+    top.forEach(r => { const f = find(r.name); if (f) { Object.assign(cfg.cats[f[0]], { type: r.type, margin: r.margin, cap: r.cap, eligible: true }); used.add(f[0]); } });
+    top.filter(r => !find(r.name)).forEach(r => { const k = keys.find(k => !used.has(k)); if (k) { cfg.cats[k] = { name: r.name, type: r.type, margin: r.margin, cap: r.cap, eligible: true }; used.add(k); } });
+    keys.filter(k => !used.has(k)).forEach(k => cfg.cats[k].eligible = false);
+    markChanged("categories updated from " + fname); closeOverlay(); toast("Updated from " + fname + ". Recommendations recalculated."); render();
+  };
+}
+async function downloadTemplate() {
+  const cfg = C();
+  const aoa = [["Category", "Product type", "Margin %", "Max discount %"], ...Object.values(cfg.cats).map(c => [c.name, c.type, c.margin, c.cap])];
+  try {
+    await loadScript(XLSX_URL);
+    const wb = window.XLSX.utils.book_new(); window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet(aoa), "Categories");
+    const buf = window.XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    const r = await saveFile(M().name.replace(/[^A-Za-z]+/g, "_") + "_category_margins.xlsx", new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    if (r === "saved") toast("Template saved."); else if (r === "failed") toast("Couldn't save the template here.");
+  } catch (e) { toast("Couldn't build the template here."); }
+}
+
+/* ================= VIEW: PERFORMANCE ================= */
+VIEWS.performance = () => {
+  const rs = windowRows(S.merchant), inflow = rs.filter(r => r.inflow), treated = inflow.filter(r => r.group !== "control"), ctrl = inflow.filter(r => r.group === "control");
+  const incr = treated.reduce((a, r) => a + r.ep - r.ep0, 0);
+  const incrFlat = treated.reduce((a, r) => a + r.epFlat - r.ep0, 0);
+  const rec = treated.filter(r => r.conv), recCtrl = ctrl.filter(r => r.conv);
+  const discGiven = rec.reduce((a, r) => a + roundOffer(r.sav), 0);
+  const discOrders = rec.filter(r => roundOffer(r.sav) > 0);
+  const st = strategyStats(S.merchant);
+  const ph = phaseOf(DAYS - 1);
+  return `<div class="page-head"><div><h1>Performance</h1><p>${esc(M().name)}, ${periodLabel()}. Extra profit is measured against the reminder-only control group.</p></div></div>
+  <div class="grid g4">
+    <button class="kpi" data-go="recs"><span class="label">Extra profit vs reminder-only</span><span class="v">${inrSigned(incr)}</span><span class="s">A flat 10% rule would have made <b style="color:var(--fg-2)">${inrSigned(incrFlat)}</b></span></button>
+    <button class="kpi" data-log="recovered"><span class="label">Orders recovered</span><span class="v">${rec.length.toLocaleString("en-IN")}</span><span class="s">${pct(rec.length / Math.max(1, treated.length))} of carts, vs ${pct(recCtrl.length / Math.max(1, ctrl.length))} in control</span></button>
+    <button class="kpi" data-log="discounted"><span class="label">Discount given</span><span class="v">${inr(discGiven)}</span><span class="s">${discOrders.length ? inr(discGiven / discOrders.length) + " average on " + discOrders.length + " orders" : "No discounts"}</span></button>
+    <button class="kpi" data-log="all"><span class="label">Carts in scope</span><span class="v">${inflow.length.toLocaleString("en-IN")}</span><span class="s">${pct(inflow.length / Math.max(1, rs.length), 0)} of ${rs.length.toLocaleString("en-IN")} abandoned carts had a top-margin item</span></button>
+  </div>
+  <div class="grid split">
+    <div class="card"><div class="card-head"><div><h2>Extra profit over time</h2><p>Cumulative, compared with sending a reminder alone. Shaded bands show what the agent was doing.</p></div>
+      <div class="legend" id="cumLegend">${[["agent", "This agent", "--s-agent"], ["flat", "Flat 10%", "--s-flat"], ["tier", "Tiered by cart value", "--s-tier"]].map(([k, l, c]) => `<label><input type="checkbox" data-s="${k}" ${S.legend[k] ? "checked" : ""}><i style="background:var(${c})"></i>${l}</label>`).join("")}</div></div>
+      <div class="chart-box"><canvas id="cumChart" aria-label="Cumulative extra profit chart" role="img"></canvas></div></div>
+    <div class="card"><div class="card-head"><div><h2>How the agent is learning</h2></div><span class="pill p-good">${PHASE_LABEL[ph]}</span></div>
+      <div class="phase-bar"><div class="on"></div><div class="on"></div><div class="on"></div></div>
+      <div class="phase-labels"><span><b>Exploring</b>${fmtDate(0)} – ${fmtDate(20)}</span><span><b>Learning</b>${fmtDate(21)} – ${fmtDate(45)}</span><span><b>Optimising</b>Since ${fmtDate(46)}</span></div>
+      <dl class="kv" style="margin-top:16px"><dt>Reminder only</dt><dd><span class="spark" style="background:var(--control)"></span>10% of carts, always</dd>
+        <dt>Testing offers</dt><dd><span class="spark" style="background:var(--test)"></span>${Math.round(90 * EXPLORE_SHARE[ph])}% get a random offer between 0 and the cap</dd>
+        <dt>Optimised offer</dt><dd><span class="spark" style="background:var(--accent)"></span>${Math.round(90 * (1 - EXPLORE_SHARE[ph]))}% get the best predicted offer</dd></dl>
+      <p class="faint" style="font-size:12.5px;margin-top:12px">Testing never stops completely, so the model keeps up when shoppers change, for example in festive weeks.</p></div>
+  </div>
+  <div class="card" id="strategies"><div class="card-head"><div><h2>Compared with fixed rules</h2><p>Every cart in scope from ${periodLabel()}, run through each rule. Per 1,000 abandoned carts.</p></div></div>
+    <div class="tbl-wrap"><table><thead><tr><th>Rule</th><th class="r">Orders recovered</th><th class="r">Discount spent</th><th class="r">Avg discount per order</th><th class="r">Extra profit vs reminder-only</th></tr></thead><tbody>
+    ${[["control", "Reminder only (control)"], ["flat", "Flat 10% off"], ["tier", "Tiered: 5% / 7.5% / 10% by cart value"], ["agent", "This agent"]].map(([k, l]) => `<tr ${k === "agent" ? 'style="font-weight:600"' : ""}><td>${l}</td><td class="r num">${Math.round(st[k].conv * 1000)} <span class="faint">(${pct(st[k].conv)})</span></td><td class="r num">${inr(st[k].disc1k)}</td><td class="r num">${inr(st[k].discPerOrder)}</td><td class="r num">${k === "control" ? "—" : inrSigned(st[k].incr1k)}</td></tr>`).join("")}
+    </tbody></table></div>
+    <p class="muted" style="margin-top:12px;font-size:13px">This agent recovers ${st.agent.conv < st.flat.conv ? "slightly fewer" : "more"} orders than a flat 10% rule but spends ${pct(1 - st.agent.disc1k / st.flat.disc1k, 0)} less on discounts, so it keeps <b>${inrSigned(st.agent.incr1k - st.flat.incr1k)}</b> more profit per 1,000 carts.</p></div>`;
+};
+BIND.performance = () => {
+  $$("[data-go]").forEach(b => b.onclick = () => go(b.dataset.go));
+  $$("[data-log]").forEach(b => b.onclick = () => { const k = b.dataset.log; S.log = { page: 0, group: "all", outcome: k === "recovered" ? "recovered" : "all", disc: k === "discounted" ? "yes" : "all", pay: "all", q: "" }; go("log"); });
+  $$("#cumLegend input").forEach(i => i.onchange = () => { S.legend[i.dataset.s] = i.checked; const ch = charts[0]; ch.data.datasets.forEach(ds => { if (ds.key) ds.hidden = !S.legend[ds.key]; }); ch.update(); });
+  const rs = windowRows(S.merchant).filter(r => r.inflow && r.group !== "control");
+  const lo = DAYS - S.range, labels = [], a = [], f = [], t = []; let ca = 0, cf = 0, ct = 0;
+  const byDay = {}; rs.forEach(r => (byDay[r.c.day] = byDay[r.c.day] || []).push(r));
+  for (let d = lo; d < DAYS; d++) { (byDay[d] || []).forEach(r => { ca += r.ep - r.ep0; cf += r.epFlat - r.ep0; ct += r.epTier - r.ep0; }); labels.push(fmtDate(d)); a.push(Math.round(ca)); f.push(Math.round(cf)); t.push(Math.round(ct)); }
+  const phasePlugin = { id: "phases", beforeDraw(ch) { const { ctx, chartArea: ar, scales: { x } } = ch; ctx.save(); [[0, 20, "exploring"], [21, 45, "learning"]].forEach(([s, e, p]) => { const si = Math.max(0, s - lo), ei = e - lo; if (ei < 0) return; const x0 = x.getPixelForValue(si) - 2, x1 = x.getPixelForValue(Math.min(ei, labels.length - 1)) + 2; ctx.fillStyle = tok(p === "exploring" ? "--test-soft" : "--accent-soft"); ctx.fillRect(x0, ar.top, x1 - x0, ar.bottom - ar.top); ctx.fillStyle = tok("--fg-3"); ctx.font = "600 11px " + tok("--f-ui"); ctx.fillText(PHASE_LABEL[p], x0 + 6, ar.top + 14); }); ctx.restore(); } };
+  charts.push(new Chart($("#cumChart"), { type: "line", plugins: [phasePlugin],
+    data: { labels, datasets: [
+      { key: "agent", label: "This agent", data: a, borderColor: tok("--s-agent"), backgroundColor: tok("--s-agent"), borderWidth: 2.5, pointRadius: 0, tension: .2, hidden: !S.legend.agent },
+      { key: "flat", label: "Flat 10%", data: f, borderColor: tok("--s-flat"), backgroundColor: tok("--s-flat"), borderWidth: 1.8, borderDash: [5, 4], pointRadius: 0, tension: .2, hidden: !S.legend.flat },
+      { key: "tier", label: "Tiered by cart value", data: t, borderColor: tok("--s-tier"), backgroundColor: tok("--s-tier"), borderWidth: 1.8, borderDash: [2, 3], pointRadius: 0, tension: .2, hidden: !S.legend.tier } ] },
+    options: chartOpts({ y: v => (Math.abs(v) >= 100000 ? "₹" + (v / 100000).toFixed(1) + " L" : inr(v)), tip: c => c.dataset.label + ": " + inrSigned(c.parsed.y), xTicks: 6 }) }));
+};
+function chartOpts({ y, tip, xTicks = 8, xType, xTitle, yTitle, xFmt }) {
+  const grid = tok("--line"), fg = tok("--fg-3");
+  const xt = { color: fg, maxTicksLimit: xTicks, autoSkip: true, maxRotation: 0 }; if (xFmt) xt.callback = v => xFmt(v);
+  const x = { type: xType || "category", grid: { display: false }, ticks: xt }; if (xTitle) x.title = { display: true, text: xTitle, color: fg };
+  const yAx = { grid: { color: grid }, border: { display: false }, ticks: { color: fg, callback: y, maxTicksLimit: 6 } }; if (yTitle) yAx.title = { display: true, text: yTitle, color: fg };
+  const tt = {}; if (tip) tt.callbacks = { label: tip };
+  return { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: "index", intersect: false }, plugins: { legend: { display: false }, tooltip: tt }, scales: { x, y: yAx } };
+}
+
+/* ================= VIEW: RESPONSE CURVES ================= */
+const SIZE_MULT = [0.35, 0.75, 1.4, 2.6];
+function curveCart() {
+  const cfg = C(), pop = POP[S.merchant], f = S.curve.f.slice();
+  const pay = f[SIG_IDX.pay]; if (pay >= 4) f[SIG_IDX.status] = 0;
+  const base = S.curve.cats.map(k => { const ps = pop.flatMap(c => c.items.filter(i => i.key === k)); return { key: k, price: ps.reduce((a, i) => a + i.price, 0) / Math.max(1, ps.length), qty: 1 }; });
+  const sum = base.reduce((a, i) => a + i.price, 0), target = pop.aov * SIZE_MULT[f[SIG_IDX.size]];
+  const items = base.map(i => ({ ...i, price: Math.max(99, Math.round(i.price * target / sum / 10) * 10 - 1) }));
+  return { items, other: 0, f };
+}
+function curveSeries() {
+  const m = M(), cfg = C(), cart = curveCart(), cv = cartCurves(m, cart, cfg);
+  const pts = []; for (let k = 0; k < cv.n; k++) pts.push({ d: k * 0.005, conv: cv.pD[k], profit: cv.pD[k] * cv.mv[k], rupees: cv.sv[k] });
+  const best = pts.reduce((a, b) => b.profit > a.profit + 1e-9 ? b : a, pts[0]);
+  const nTests = windowRows(S.merchant).filter(r => r.inflow && r.group === "testing").length;
+  return { cart, cv, pts, best, p0: pts[0], nTests, blocked: isBlocked(cfg, cart.f) };
+}
+VIEWS.curves = () => {
+  const cfg = C(), keys = Object.keys(cfg.cats).filter(k => cfg.cats[k].eligible);
+  S.curve.cats = S.curve.cats.filter(k => keys.includes(k)); if (!S.curve.cats.length) S.curve.cats = [keys[0]];
+  const cs = curveSeries(), b = cs.best, p0 = cs.p0, f = cs.cart.f;
+  const field = (sg, j) => { const dis = sg.id === "status" && f[SIG_IDX.pay] >= 4; return `<label class="field"><span class="label">${sg.label}${cfg.signals[sg.id] ? "" : ' <span class="pill p-mute plain">Off</span>'}</span><select data-cf="${j}" ${dis ? "disabled" : ""} aria-label="${esc(sg.label)}">${sg.levels.map((l, v) => `<option value="${v}" ${f[j] === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>`; };
+  const drv = drivers(S.merchant, f);
+  return `<div class="page-head"><div><h1>Response curves</h1><p>How likely a shopper is to complete the purchase at each discount, and what that does to your profit. Describe a cart and the agent shows what it would send.</p></div></div>
+  <div class="explorer">
+    <div class="card ctrl">
+      ${SIGNALS.map(field).join("")}
+      <div class="field"><span class="label">Categories in cart</span><div class="row" style="gap:6px">${keys.map(k => `<button class="chip" data-cat="${k}" aria-pressed="${S.curve.cats.includes(k)}">${esc(cfg.cats[k].name)}</button>`).join("")}</div></div>
+      <p class="faint" style="font-size:12.5px">Cart: ${cs.cart.items.map(i => esc(catName(i.key)) + " " + inr(i.price)).join(" + ")}. Your average order is ${inr(POP[S.merchant].aov)}.</p>
+    </div>
+    <div class="grid">
+      <div class="card readout">
+        <div><span class="label">Best offer</span><div class="big">${cs.blocked ? "Reminder only" : b.d > 0 ? "₹" + roundOffer(b.rupees) + " off" : "No discount"}</div><span class="muted" style="font-size:12.5px">${cs.blocked ? "You set this group to reminder only" : b.d > 0 ? pctD(b.d) + " of eligible items" : f[SIG_IDX.status] > 0 ? "Retry link, no discount" : "Reminder only"}</span></div>
+        <div><span class="label">Chance they buy</span><div class="big">${pct(p0.conv)} → ${pct(cs.blocked ? p0.conv : b.conv)}</div><span class="muted" style="font-size:12.5px">Reminder only → best offer</span></div>
+        <div><span class="label">Extra profit per 1,000 carts</span><div class="big good">${inrSigned(cs.blocked ? 0 : (b.profit - p0.profit) * 1000)}</div><span class="muted" style="font-size:12.5px">At your cap (${pctD(cs.cv.mc)}): ${inrSigned((cs.pts[cs.pts.length - 1].profit - p0.profit) * 1000)}</span></div>
+      </div>
+      <div class="card"><div class="card-head"><div><h2>What moves this offer</h2><p>Signals that push this cart's offer up or down compared with your average cart.</p></div></div>
+        <div class="row" style="gap:8px">${drv.length ? drv.map(d => `<span class="pill ${d.d.startsWith("more") ? "p-warn" : d.d.startsWith("less") ? "p-info" : "p-good"} plain">${esc(d.t)} · ${d.d}</span>`).join("") : '<span class="faint">This cart is close to your average, so no single signal stands out.</span>'}</div></div>
+      <div class="card"><div class="card-head"><div><h2>Chance of completing the purchase</h2></div></div><div class="chart-box sm"><canvas id="convChart" role="img" aria-label="Conversion by discount"></canvas></div></div>
+      <div class="card"><div class="card-head"><div><h2>Expected profit per cart</h2><p>Margin kept on the order × chance they buy. The dashed line is reminder-only.</p></div></div><div class="chart-box sm"><canvas id="profChart" role="img" aria-label="Profit by discount"></canvas></div>
+        <p class="faint" style="font-size:12px;margin-top:10px">One model learns all signals together, so it can price combinations it has rarely seen. Learned from ${cs.nTests.toLocaleString("en-IN")} test offers at ${esc(M().name)} in this period, plus pooled data for these product types from other stores. Margins are never pooled.</p></div>
+    </div>
+  </div>`;
+};
+BIND.curves = () => {
+  $$("[data-cf]").forEach(s => s.onchange = () => { S.curve.f[+s.dataset.cf] = +s.value; render(); });
+  $$("[data-cat]").forEach(bt => bt.onclick = () => { const k = bt.dataset.cat, i = S.curve.cats.indexOf(k); if (i >= 0) { if (S.curve.cats.length > 1) S.curve.cats.splice(i, 1); } else S.curve.cats.push(k); render(); });
+  const cs = curveSeries();
+  const vline = { id: "vline", afterDraw(ch) { const { ctx, chartArea: a, scales: { x } } = ch; const X = x.getPixelForValue(cs.best.d * 100); ctx.save(); ctx.strokeStyle = tok("--good"); ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(X, a.top); ctx.lineTo(X, a.bottom); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = tok("--good"); ctx.font = "600 11px " + tok("--f-ui"); const lbl = cs.best.d > 0 ? "Best: ₹" + roundOffer(cs.best.rupees) : "Best: no discount"; ctx.fillText(lbl, Math.min(X + 6, a.right - ctx.measureText(lbl).width), a.top + 12); ctx.restore(); } };
+  const tipX = c => { const p = cs.pts[c.dataIndex]; return p ? "₹" + roundOffer(p.rupees) + " off (" + pctD(p.d) + ")" : ""; };
+  const base = yT => { const o = chartOpts({ y: yT === "pct" ? (v => v.toFixed(0) + "%") : (v => "₹" + Math.round(v)), tip: null, xType: "linear", xTitle: "Discount on eligible items (%)", xFmt: v => v + "%" }); o.scales.x.min = 0; o.scales.x.max = Math.max(1, cs.cv.mc * 100); o.plugins.tooltip.callbacks = { title: items => tipX(items[0]), label: c => c.dataset.label + ": " + (yT === "pct" ? c.parsed.y.toFixed(1) + "%" : inr(c.parsed.y)) }; return o; };
+  charts.push(new Chart($("#convChart"), { type: "line", plugins: [vline], data: { datasets: [{ label: "Chance they buy", data: cs.pts.map(p => ({ x: p.d * 100, y: p.conv * 100 })), borderColor: tok("--accent"), backgroundColor: "transparent", borderWidth: 2.5, pointRadius: 0 }] }, options: base("pct") }));
+  charts.push(new Chart($("#profChart"), { type: "line", plugins: [vline], data: { datasets: [
+    { label: "Expected profit", data: cs.pts.map(p => ({ x: p.d * 100, y: p.profit })), borderColor: tok("--good"), backgroundColor: "transparent", borderWidth: 2.5, pointRadius: 0 },
+    { label: "Reminder only", data: [{ x: 0, y: cs.p0.profit }, { x: cs.cv.mc * 100, y: cs.p0.profit }], borderColor: tok("--fg-3"), borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0 } ] }, options: base("inr") }));
+};
+
+/* ================= HOW IT WORKS ================= */
+function openHow() {
+  const m = M(), st = strategyStats(S.merchant);
+  const body = `<p>Margin-Aware Cart Recovery decides <b>whether an abandoned cart should get a discount, and how much</b>, so you win back profit, not just orders.</p>
+    <div><span class="label">How it works</span><div class="how-steps" style="margin-top:8px">
+      <div><b>1. A shopper leaves checkout.</b><br>Magic Checkout tells the agent, along with the cart, the payment attempt and where the shopper came from.</div>
+      <div><b>2. It checks your rules.</b><br>Only carts with one of your top-margin categories are in scope. Your caps and margin floor always apply.</div>
+      <div><b>3. It prices the offer.</b><br>The AI predicts how likely this kind of cart is to buy at each discount, and picks the one that leaves you the most profit. Often that's ₹0.</div>
+      <div><b>4. It messages the shopper.</b><br>A reminder, a rupee saving if it pays, or a one-tap retry link if the payment failed. Only to shoppers who opted in.</div>
+    </div></div>
+    <div><span class="label">Why it earns more</span><p style="margin-top:6px">A flat coupon goes to everyone who comes back, including shoppers who would have paid anyway. The agent skips those carts and spends only where a discount changes the outcome. At ${esc(m.name)} over ${periodLabel()}, that's <b>${inrSigned(st.agent.incr1k)}</b> extra profit per 1,000 carts, against ${inrSigned(st.flat.incr1k)} for a flat 10%.</p></div>
+    <div><span class="label">How the AI keeps track</span><ul style="margin:6px 0 0;padding-left:18px;display:grid;gap:4px"><li>10% of carts always get a reminder only. Comparing them with the rest shows exactly how much profit the offers added.</li><li>A share of carts gets random test offers, so the AI keeps learning as seasons and traffic change.</li><li>New stores start from what Razorpay already knows about these product types, so there's no cold start.</li></ul></div>
+    <div><span class="label">You stay in control</span><p style="margin-top:6px">Set caps and the margin floor, switch signals off, set any group to reminder only, approve changes before they go live, and pause everything in one click.</p></div>`;
+  openModal("How Margin-Aware Cart Recovery works", body, `<button class="btn" id="howSetup">Go to Setup</button><button class="btn primary" id="howRecs">See recommendations</button>`);
+  $("#howSetup").onclick = () => { closeOverlay(); go("setup"); };
+  $("#howRecs").onclick = () => { closeOverlay(); go("recs"); };
+}
+/* ================= NEXT BEST ACTIONS ================= */
+const NBA_CACHE = {};
+function nextActions(id) {
+  const cfg = CFG[id], key = cfgSig(cfg) + "|" + S.range;
+  if (NBA_CACHE[id] && NBA_CACHE[id].key === key) return NBA_CACHE[id].list;
+  const now = strategyStats(id).agent.incr1k, list = [];
+  let best = null;
+  Object.entries(cfg.cats).forEach(([k, c]) => {
+    if (!c.eligible) return;
+    const room = c.margin - cfg.floor;
+    [3, -3].forEach(delta => {
+      const to = Math.max(0, Math.min(c.cap + delta, room));
+      if (to === c.cap) return;
+      const v = withToggled(id, a => a.cats[k].cap = to) - now;
+      if (v > 400 && (!best || v > best.v)) best = { v, k, to, from: c.cap, name: c.name };
+    });
+  });
+  if (best) list.push({ id: "cap", title: `${best.to > best.from ? "Raise" : "Lower"} the max discount on ${best.name} from ${best.from}% to ${best.to}%`, text: `Estimated ${inrSigned(best.v)} extra profit per 1,000 carts. ${best.to > best.from ? "Your cap is stopping the best offer for some price-sensitive carts." : "The agent was spending more than it earned at the top of the range."}`, btn: "Apply", act: () => { cfg.cats[best.k].cap = best.to; markChanged(best.name + " max discount " + best.to + "%"); } });
+  const regOn = cfg.signals.region, rv = withToggled(id, a => a.signals.region = !regOn) - now;
+  list.push(regOn ? { id: "region", title: `Region tier adds only ${inrSigned(-rv)} per 1,000 carts`, text: "Region can act as a proxy for income. If fairness matters more than this amount to you, switch it off.", btn: "Switch region off", act: () => { cfg.signals.region = false; markChanged("Region signal off"); } }
+    : { id: "region", title: `Turning region back on would add ${inrSigned(rv)} per 1,000 carts`, text: "Only the city tier is used, never the address.", btn: "Switch region on", act: () => { cfg.signals.region = true; markChanged("Region signal on"); } });
+  const st = bucketStats(id, SIG_IDX.status).slice(1).filter(b => b.n), fn = st.reduce((a, b) => a + b.n, 0);
+  if (fn) { const keep = st.reduce((a, b) => a + b.n * (1 - b.withD), 0) / fn; list.push({ id: "fail", title: `${pct(keep, 0)} of failed-payment carts need only a retry link`, text: "These shoppers had already decided to buy. Keeping discounts off here protects margin at almost no cost in orders.", btn: cfg.blocks["status:1"] && cfg.blocks["status:2"] && cfg.blocks["status:3"] ? null : "Set failed payments to retry only", act: () => { [1, 2, 3].forEach(v => cfg.blocks["status:" + v] = true); markChanged("Failed payments set to retry link only"); } }); }
+  NBA_CACHE[id] = { key, list };
+  return list;
+}
+/* ================= VIEW: RECOMMENDATIONS ================= */
+function bucketWhy(sg, b, cfg) {
+  if (!b.n) return "No carts in this group in this period.";
+  let t = `${b.lvl} carts buy ${pct(b.conv0)} of the time with a reminder alone. `;
+  if (b.blocked) return t + "You set this group to reminder only, so it gets no discount.";
+  t += b.withD < 0.05 ? `The agent sends almost no discounts here: the extra orders wouldn't cover the margin given away to shoppers who were buying anyway.` :
+    `The agent adds an offer on ${pct(b.withD, 0)} of these carts (avg ${inr(b.avgOfferGiven)} when given), lifting purchases to ${pct(b.conv1)} and adding ${inrSigned(b.incr1k)} profit per 1,000 carts after the discount cost.`;
+  if (!cfg.signals[sg.id]) t += ` You've switched this signal off, so offers here don't depend on it.`;
+  return t;
+}
+VIEWS.recs = () => {
+  const cfg = C(), j = SIG_IDX[S.viewBy], sg = SIGNALS[j], bs = bucketStats(S.merchant, j), st = strategyStats(S.merchant), rules = learnedRules(S.merchant);
+  const carts30 = POP[S.merchant].filter(c => c.day >= DAYS - 30).length * compute(S.merchant).inflowShare;
+  return `<div class="page-head"><div><h1>Recommendations</h1><p>What the agent will offer, summarised by group. Each cart gets its own price from all signals at once; the groups are how you review and control it.</p></div>
+    <label class="sel"><span class="label">View by</span><select id="viewBy" aria-label="View by">${SIGNALS.map(s => `<option value="${s.id}" ${s.id === S.viewBy ? "selected" : ""}>${s.label}</option>`).join("")}</select></label></div>
+  <div class="banner ${cfg.policy === "pending" ? "warn" : "info"}"><span>${cfg.policy === "pending" ? "<b>Policy waiting for approval.</b> " : "<b>Policy live.</b> "}Estimated extra profit over the next 30 days: <b>${inrSigned(st.agent.incr1k / 1000 * carts30)}</b> compared with reminders alone, from about ${Math.round(carts30).toLocaleString("en-IN")} carts in scope.</span></div>
+  <div class="card"><div class="card-head"><div><h2>Next best actions</h2><p>What the agent suggests you do now, with the profit at stake. Nothing changes until you click.</p></div></div>
+    <div class="nba">${nextActions(S.merchant).map((a, i) => `<div class="nba-item"><div style="min-width:0"><b>${esc(a.title)}</b><p>${esc(a.text)}</p></div>${a.btn ? `<button class="btn primary" data-nba="${i}">${esc(a.btn)}</button>` : '<span class="pill p-good plain">Done</span>'}</div>`).join("")}</div></div>
+  <div class="card"><div class="card-head"><div><h2>What the agent learned</h2><p>The biggest patterns behind its offers at ${esc(M().name)}, ${periodLabel()}.</p></div></div>
+    <ul class="rules">${rules.map(r => `<li>${esc(r)}</li>`).join("") || "<li>Not enough data in this period to state patterns.</li>"}</ul></div>
+  <div class="card"><div class="card-head"><div><h2>By ${sg.label.toLowerCase()}</h2><p>${esc(sg.note)}${cfg.signals[sg.id] ? "" : " This signal is switched off."} Set a group to reminder only and it never gets a discount.</p></div>${SCOPE_PILL[sg.scope]}</div>
+    <div class="tbl-wrap"><table><thead><tr><th>Group</th><th class="r">Carts</th><th class="r">Buy rate</th><th class="r">Gets an offer</th><th class="r">Avg offer</th><th class="r">Extra profit / 1,000</th><th>Confidence</th><th>Offers</th><th></th></tr></thead><tbody>
+    ${bs.map(b => `<tr><td><b>${esc(b.lvl)}</b></td><td class="r num">${b.n ? pct(b.share, 0) : "—"}</td><td class="r num">${b.n ? pct(b.conv0) + " → " + pct(b.conv1) : "—"}</td><td class="r num">${b.n ? pct(b.withD, 0) : "—"}</td><td class="r num">${b.n && b.withD ? inr(b.avgOfferGiven) : "—"}</td>
+      <td class="r num" style="color:var(--good);font-weight:600">${b.n ? inrSigned(b.incr1k) : "—"}</td><td>${b.n ? `<span class="pill ${b.conf === "High" ? "p-good" : b.conf === "Medium" ? "p-warn" : "p-bad"} plain">${b.conf}</span> <span class="faint" style="font-size:12px">${b.nTest} tests</span>` : "—"}</td>
+      <td><label class="switch"><input type="checkbox" data-block="${b.v}" ${b.blocked ? "" : "checked"} aria-label="Allow offers for ${esc(b.lvl)}"><span class="track"></span><span style="font-size:12.5px">${b.blocked ? "Reminder only" : "Allowed"}</span></label></td>
+      <td><button class="btn ghost" data-why="${b.v}">${S.openWhy[S.viewBy + b.v] ? "Hide" : "Why?"}</button></td></tr>
+      ${S.openWhy[S.viewBy + b.v] ? `<tr class="expand"><td colspan="9"><div class="why">${esc(bucketWhy(sg, b, cfg))}</div></td></tr>` : ""}`).join("")}
+    </tbody></table></div></div>
+  <div class="card ask" id="askCard"><div class="card-head"><div><h2>Ask about these recommendations</h2><p>Answers use this store's numbers on this page.</p></div><span class="aiMode"></span></div>
+    <div class="row" style="gap:6px">${PRESETS.map((p, i) => `<button class="chip" data-preset="${i}">${esc(p.q)}</button>`).join("")}</div>
+    <form class="ask-form" id="askForm"><input type="text" id="askIn" placeholder="e.g. What happens if I lower my max discount on serums to 8%?" aria-label="Your question"><button class="btn primary" type="submit" id="askBtn">Ask</button><button class="btn" type="button" id="stopBtn" hidden>Stop</button></form>
+    <div class="answer empty" id="answer" aria-live="polite">Pick a question or type your own.</div></div>`;
+};
+function withToggled(id, mut) { const alt = JSON.parse(JSON.stringify(CFG[id])); mut(alt); return strategyStats(id, computeWith(id, alt)).agent.incr1k; }
+const PRESETS = [
+  { q: "Why no discount when a payment fails?", a: id => { const bs = bucketStats(id, SIG_IDX.status), ok = bs[0], fl = bs.slice(1).filter(b => b.n); if (!fl.length) return "No failed payments in scope in this period."; const n = fl.reduce((a, b) => a + b.n, 0), c0 = fl.reduce((a, b) => a + b.n * b.conv0, 0) / n, wd = fl.reduce((a, b) => a + b.n * b.withD, 0) / n; return `Shoppers whose payment failed had already decided to buy. With just a retry link, ${pct(c0)} of them complete the order, against ${pct(ok.conv0)} for shoppers who left before paying. A discount barely moves that, so the agent sends one on only ${pct(wd, 0)} of failed-payment carts and keeps the margin.`; } },
+  { q: "What if I lower every max discount by 3 points?", a: id => { const now = strategyStats(id).agent.incr1k, alt = withToggled(id, c => Object.values(c.cats).forEach(x => x.cap = Math.max(0, x.cap - 3))), d = alt - now; return `Lowering every max discount by 3 points changes extra profit by ${inrSigned(d)} per 1,000 carts (${inrSigned(now)} → ${inrSigned(alt)}). ${Math.abs(d) < 1500 ? "That's small, because most best offers already sit below your caps." : d < 0 ? "Your caps bind for the most price-sensitive carts, such as cash-on-delivery shoppers from paid social, so tighter caps lose orders there." : "Lower caps help, because the agent was spending more than it earned at the top end."}`; } },
+  { q: "What does using region add?", a: id => { const on = CFG[id].signals.region, now = strategyStats(id).agent.incr1k, alt = withToggled(id, c => c.signals.region = !on); const gain = on ? now - alt : alt - now; return `Using region tier adds ${inrSigned(gain)} per 1,000 carts. Tier 2 and 3 carts respond more to discounts than metro carts, so the agent offers them more. Only the tier is used, never the address, and you can switch it off in Setup at that cost.`; } },
+  { q: "How sure are we about these numbers?", a: id => { const j = SIG_IDX[S.viewBy], bs = bucketStats(id, j).filter(b => b.n), low = bs.filter(b => b.conf === "Low").map(b => b.lvl); return `Every offer rests on random test offers at this store plus pooled data for the same product types elsewhere. By ${SIGNALS[j].label.toLowerCase()}, ${bs.filter(b => b.conf === "High").length} of ${bs.length} groups have high confidence (200+ tests). ${low.length ? "Low confidence: " + low.join(", ") + ". Treat those offers as a starting point." : "No group is low confidence."} The 10% reminder-only group proves the extra profit, so it never switches off.`; } },
+  { q: "Which carts gain most from a discount?", a: id => { let best = null; SIGNALS.forEach((sg, j) => { if (!CFG[id].signals[sg.id]) return; bucketStats(id, j).forEach(b => { if (b.n >= 40 && !b.blocked && (!best || b.incr1k > best.b.incr1k)) best = { sg, b }; }); }); return best ? `${best.b.lvl} carts (${best.sg.label.toLowerCase()}) gain the most: ${inrSigned(best.b.incr1k)} per 1,000 carts, with offers averaging ${inr(best.b.avgOfferGiven)}. ${learnedRules(id)[1] || ""}` : "Not enough data in this period."; } } ];
+function recsContext(id) {
+  const cfg = CFG[id], st = strategyStats(id), j = SIG_IDX[S.viewBy];
+  return JSON.stringify({ store: MBYID[id].name, period: periodLabel(), marginFloorPct: cfg.floor,
+    categories: Object.values(cfg.cats).map(c => ({ name: c.name, productType: c.type, marginPct: c.margin, maxDiscountPct: c.cap, inScope: c.eligible })),
+    signalsOn: SIGNALS.filter(s => cfg.signals[s.id]).map(s => s.label), signalsOff: SIGNALS.filter(s => !cfg.signals[s.id]).map(s => s.label),
+    learnedPatterns: learnedRules(id),
+    groupsBy: SIGNALS[j].label, groups: bucketStats(id, j).filter(b => b.n).map(b => ({ group: b.lvl, shareOfCarts: +(b.share * 100).toFixed(1), buyRateReminderOnly: +(b.conv0 * 100).toFixed(1), buyRateWithOffers: +(b.conv1 * 100).toFixed(1), shareGettingOffer: +(b.withD * 100).toFixed(0), avgOfferRupees: Math.round(b.avgOfferGiven), extraProfitPer1000Carts: Math.round(b.incr1k), confidence: b.conf, reminderOnly: b.blocked })),
+    extraProfitPer1000Carts: { flat10: Math.round(st.flat.incr1k), tiered: Math.round(st.tier.incr1k), thisAgent: Math.round(st.agent.incr1k) } });
+}
+let askCtl = null;
+BIND.recs = () => {
+  const cfg = C(), j = SIG_IDX[S.viewBy], sg = SIGNALS[j];
+  $("#viewBy").onchange = e => { S.viewBy = e.target.value; render(); };
+  $$("[data-nba]").forEach(b => b.onclick = () => { const a = nextActions(S.merchant)[+b.dataset.nba]; a.act(); toast("Done. " + (C().reviewFirst ? "Waiting for your approval above." : "Live for new carts.")); render(); });
+  $$("[data-block]").forEach(inp => inp.onchange = () => { const key = sg.id + ":" + inp.dataset.block, lvl = sg.levels[+inp.dataset.block]; if (inp.checked) delete cfg.blocks[key]; else cfg.blocks[key] = true; markChanged(lvl + (inp.checked ? " offers allowed" : " set to reminder only")); toast(inp.checked ? `Offers allowed for ${lvl}.` : `${lvl} carts will get a reminder only.`); render(); });
+  $$("[data-why]").forEach(b => b.onclick = () => { const k = S.viewBy + b.dataset.why; S.openWhy[k] = !S.openWhy[k]; render(); });
+  $$("[data-preset]").forEach(b => b.onclick = () => ask(PRESETS[+b.dataset.preset].q, +b.dataset.preset));
+  $("#askForm").onsubmit = e => { e.preventDefault(); const q = $("#askIn").value.trim(); if (q) ask(q, null); };
+  $("#stopBtn").onclick = () => askCtl && askCtl.abort();
+};
+function presetFor(q) { const t = q.toLowerCase(); if (/fail|declin|timeout|otp|retry/.test(t)) return 0; if (/cap|max|lower|limit/.test(t)) return 1; if (/region|tier|metro|city/.test(t)) return 2; if (/sure|confiden|trust|accura/.test(t)) return 3; if (/most|best|which|gain/.test(t)) return 4; return null; }
+async function ask(q, preset) {
+  const out = $("#answer"), id = S.merchant, stop = $("#stopBtn"), btn = $("#askBtn");
+  out.classList.remove("empty");
+  const computed = () => { const p = preset !== null ? preset : presetFor(q); return p !== null ? PRESETS[p].a(id) : null; };
+  if (!AI.fn) { const a = computed(); out.textContent = a ? a : "This question needs live AI, which isn't available in this view. Try one of the suggested questions above."; return; }
+  askCtl = new AbortController(); stop.hidden = false; btn.disabled = true; out.textContent = "Thinking…";
+  const t0 = performance.now(); let first = 0;
+  try {
+    await aiText(`You are the assistant inside a merchant dashboard for an agent that sets abandoned-cart discounts to maximise profit (not conversions). Answer the merchant's question in plain English, under 110 words, using only the numbers in the data below. Use rupee figures. If the data cannot answer it, say what is missing. No headings or bullet points.\n\nDATA:\n${recsContext(id)}\n\nQUESTION: ${q}`,
+      ({ text }) => { if (!first) first = performance.now() - t0; out.textContent = text; }, askCtl.signal);
+    if (first) { const n = document.createElement("div"); n.className = "faint"; n.style.cssText = "font-size:11.5px;margin-top:8px"; n.textContent = "First words after " + (first / 1000).toFixed(1) + " s"; out.appendChild(n); }
+  } catch (e) {
+    if (e && e.code === "cancelled") out.textContent = e.text || "Stopped.";
+    else { aiFailed(e); const a = computed(); out.textContent = (e && e.text) ? e.text : a ? a : "Live AI isn't available right now. Try one of the suggested questions above."; }
+  } finally { stop.hidden = true; btn.disabled = false; }
+}
+
+/* ================= VIEW: CART LOG ================= */
+function logRows() {
+  const L = S.log; let rs = windowRows(S.merchant).filter(r => r.inflow).sort((a, b) => b.c.day - a.c.day || (b.c.hour * 60 + b.c.minute) - (a.c.hour * 60 + a.c.minute));
+  if (L.group !== "all") rs = rs.filter(r => r.group === L.group);
+  if (L.outcome !== "all") rs = rs.filter(r => (L.outcome === "recovered") === r.conv);
+  if (L.disc !== "all") rs = rs.filter(r => (L.disc === "yes") === (roundOffer(r.sav) > 0));
+  if (L.pay !== "all") rs = rs.filter(r => r.c.f[SIG_IDX.pay] === +L.pay);
+  if (L.q) rs = rs.filter(r => r.c.id.toLowerCase().includes(L.q.toLowerCase()));
+  return rs;
+}
+const PER_PAGE = 20;
+const SHORT_PAY = ["UPI", "Credit card", "Debit card", "Net banking", "COD", "Not chosen"];
+VIEWS.log = () => {
+  const L = S.log, rs = logRows(), pages = Math.max(1, Math.ceil(rs.length / PER_PAGE)); L.page = Math.min(L.page, pages - 1);
+  const pg = rs.slice(L.page * PER_PAGE, (L.page + 1) * PER_PAGE);
+  const sel = (id, v, opts) => `<select id="${id}" aria-label="${id}">${opts.map(([val, l]) => `<option value="${val}" ${String(v) === String(val) ? "selected" : ""}>${l}</option>`).join("")}</select>`;
+  return `<div class="page-head"><div><h1>Cart log</h1><p>Every abandoned cart in scope, ${periodLabel()}: what the agent sent and what happened. Open a cart to see the message, why that offer, and the checks it passed.</p></div><button class="btn" id="exportBtn">Export CSV</button></div>
+  <div class="filters">${sel("fGroup", L.group, [["all", "All groups"], ["control", "Control"], ["testing", "Testing"], ["optimised", "Optimised"]])}
+    ${sel("fPay", L.pay, [["all", "Any payment"], ...SHORT_PAY.map((p, i) => [i, p])])}
+    ${sel("fOutcome", L.outcome, [["all", "Any outcome"], ["recovered", "Recovered"], ["lost", "Not recovered"]])}
+    ${sel("fDisc", L.disc, [["all", "Any offer"], ["yes", "With discount"], ["no", "Reminder only"]])}
+    <input type="search" id="fQ" placeholder="Search cart ID" value="${esc(L.q)}" aria-label="Search cart ID"><span class="faint">${rs.length.toLocaleString("en-IN")} carts</span></div>
+  <div class="tbl-wrap"><table><thead><tr><th>Cart</th><th>When</th><th>Shopper</th><th>Payment</th><th>Region</th><th>Source</th><th>Group</th><th class="r">Offer</th><th>Outcome</th><th class="r">Profit</th></tr></thead><tbody>
+  ${pg.length ? pg.map(r => { const c = r.c, f = c.f, st = f[SIG_IDX.status], off = roundOffer(r.sav); return `<tr class="click" data-cart="${c.id}" tabindex="0"><td class="mono">${c.id}</td><td class="num">${fmtDate(c.day)}, ${fmtTime(c.hour, c.minute)}</td><td>${lv("shopper", f)}</td>
+    <td>${SHORT_PAY[f[SIG_IDX.pay]]}${st ? ` <span class="pill p-bad plain">${esc(SIGNALS[SIG_IDX.status].levels[st])}</span>` : ""}</td><td>${lv("region", f)}</td><td>${lv("source", f)}</td><td>${GROUP_PILL[r.group]}</td>
+    <td class="r num">${off > 0 ? "₹" + off : `<span class="faint">${st ? "Retry link" : "Reminder"}</span>`}</td>
+    <td>${r.conv ? '<span class="pill p-good">Recovered</span>' : '<span class="pill p-mute">Not yet</span>'}</td><td class="r num">${r.conv ? inr(r.profit) : '<span class="faint">—</span>'}</td></tr>`; }).join("") : `<tr><td colspan="10" class="empty-state">No carts match these filters.</td></tr>`}
+  </tbody></table></div>
+  <div class="pager"><span>Page ${L.page + 1} of ${pages}</span><div class="row"><button class="btn" id="prevPg" ${L.page ? "" : "disabled"}>Previous</button><button class="btn" id="nextPg" ${L.page < pages - 1 ? "" : "disabled"}>Next</button></div></div>`;
+};
+BIND.log = () => {
+  const L = S.log;
+  [["fGroup", "group"], ["fPay", "pay"], ["fOutcome", "outcome"], ["fDisc", "disc"]].forEach(([id, k]) => $("#" + id).onchange = e => { L[k] = e.target.value; L.page = 0; render(); });
+  $("#fQ").onchange = e => { L.q = e.target.value.trim(); L.page = 0; render(); };
+  $("#prevPg").onclick = () => { L.page--; render(); };
+  $("#nextPg").onclick = () => { L.page++; render(); };
+  $$("[data-cart]").forEach(tr => { tr.onclick = () => openCart(tr.dataset.cart); tr.onkeydown = e => { if (e.key === "Enter") openCart(tr.dataset.cart); }; });
+  $("#exportBtn").onclick = exportCsv;
+};
+function openCart(id) {
+  const r = compute(S.merchant).rows.find(x => x.c.id === id), c = r.c, cfg = C(), m = M(), f = c.f, failed = f[SIG_IDX.status] > 0;
+  const its = c.items.map(it => { const cc = cfg.cats[it.key]; const di = cc.eligible ? Math.min(r.d, itemCap(cfg, it.key)) : 0; return { ...it, cc, di, sv: it.price * it.qty * di }; });
+  const eligNames = its.filter(i => i.cc.eligible).map(i => i.title);
+  const offer = roundOffer(r.sav), capAmt = its.reduce((a, i) => a + (i.cc.eligible ? i.price * i.qty * itemCap(cfg, i.key) : 0), 0);
+  const minMarginAfter = Math.min(...its.filter(i => i.cc.eligible).map(i => i.cc.margin - i.di * 100));
+  const drv = drivers(S.merchant, f);
+  const reason = r.group === "control" ? "Control group. This cart gets a reminder with no discount, so the extra profit from offers can be measured." :
+    r.blocked ? "You set one of this cart's groups to reminder only, so no discount was sent." :
+    r.group === "testing" ? `Test offer. A random amount between 0 and the cap (${pctD(r.cv.mc)}) was sent so the model keeps learning.` :
+    offer > 0 ? `Best predicted offer for this cart. It lifts the chance of purchase from ${pct(r.p0)} to ${pct(r.p)} and earns the most expected profit.` :
+    failed ? `Payment failed, so the shopper already chose to buy. A retry link alone brings ${pct(r.p0)} back; a discount would cost more margin than it adds.` :
+    `Best predicted offer is no discount. This cart converts ${pct(r.p0)} of the time with a reminder, and a discount would cost more margin than it brings back.`;
+  const first = its[0].title.replace(/ – .*/, "");
+  const opener = failed ? `Hi! Your payment for ${esc(first)} didn't go through (${esc(SIGNALS[SIG_IDX.status].levels[f[SIG_IDX.status]].toLowerCase())}). Your cart is saved, so you can retry in one tap.` : `Hi! You left ${esc(first)}${its.length > 1 ? " and " + (its.length - 1) + " more item" + (its.length > 2 ? "s" : "") : ""} in your ${esc(m.name)} cart.`;
+  const msg = opener + (offer ? ` Complete your order and save <b>₹${offer}</b> on ${eligNames.length > 1 ? "eligible items" : esc(eligNames[0].replace(/ – .*/, ""))}.` : failed ? "" : " Your items are saved and ready when you are.");
+  const body = `<dl class="kv"><dt>Abandoned</dt><dd>${fmtDate(c.day)} 2026, ${fmtTime(c.hour, c.minute)}</dd>${SIGNALS.map((sg, j) => `<dt>${sg.label}</dt><dd>${esc(sg.levels[f[j]])}${cfg.signals[sg.id] ? "" : ' <span class="faint">(not used)</span>'}</dd>`).join("")}
+    <dt>Outcome</dt><dd>${r.conv ? `<span class="pill p-good">Recovered</span> profit ${inr(r.profit)}` : '<span class="pill p-mute">Not recovered yet</span>'}</dd></dl>
+    <div><span class="label">Why this offer</span><p style="margin-top:6px">${reason}</p>${drv.length ? `<div class="row" style="gap:6px;margin-top:8px">${drv.map(d => `<span class="pill ${d.d.startsWith("more") ? "p-warn" : d.d.startsWith("less") ? "p-info" : "p-good"} plain">${esc(d.t)} · ${d.d}</span>`).join("")}</div>` : ""}</div>
+    <div><span class="label">Items</span><div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th>Item</th><th class="r">Price</th><th class="r">Margin</th><th class="r">Saving</th></tr></thead><tbody>
+      ${its.map(i => `<tr><td>${esc(i.title)}${i.qty > 1 ? " ×" + i.qty : ""}<br><span class="faint" style="font-size:12px">${esc(i.cc.name)}${i.cc.eligible ? "" : " · not in scope"}</span></td><td class="r num">${inr(i.price * i.qty)}</td><td class="r num">${i.cc.margin}%</td><td class="r num">${i.sv > 0 ? inr(i.sv) + `<br><span class="faint" style="font-size:12px">${pctD(i.di)}</span>` : '<span class="faint">—</span>'}</td></tr>`).join("")}
+      ${c.other ? `<tr><td>${esc(m.other.label)}<br><span class="faint" style="font-size:12px">Not in scope, never discounted</span></td><td class="r num">${inr(c.other)}</td><td class="r num">${Math.round(m.other.margin * 100)}%</td><td class="r faint">—</td></tr>` : ""}
+      </tbody></table></div><p class="faint" style="font-size:12px;margin-top:6px">The shopper sees one total saving, rounded to the nearest ₹5. Each item is discounted separately behind the scenes.</p></div>
+    <div><span class="label">Message sent on ${cfg.channel === "email" ? "email" : "WhatsApp"}</span><div class="bubble" style="margin-top:8px">${msg}<span class="cta">${failed ? "Retry payment" : "Complete purchase"}</span><small>${esc(cfg.optout)}</small></div></div>
+    <div><span class="label">Checks before sending</span><div class="checks" style="margin-top:8px">
+      <div><span class="ok">✓</span><span>Shopper opted in to messages</span></div>
+      <div><span class="ok">✓</span><span>Offer within your limits: ₹${offer} of ₹${Math.round(capAmt)} allowed</span></div>
+      <div><span class="ok">✓</span><span>Margin floor kept: lowest item margin after discount is ${minMarginAfter.toFixed(1)}% (floor ${cfg.floor}%)</span></div>
+      <div><span class="ok">✓</span><span>No device data or address used; region tier only</span></div>
+      <div><span class="ok">✓</span><span>No countdowns, fake scarcity or pressure wording</span></div>
+      <div><span class="ok">✓</span><span>Opt-out line included</span></div></div></div>`;
+  openDrawer("Cart " + c.id, body, GROUP_PILL[r.group]);
+}
+async function exportCsv() {
+  const rs = logRows();
+  const head = ["cart_id", "date", "time", ...SIGNALS.map(s => s.id), "group", "offer_rupees", "recovered", "profit_rupees"];
+  const q = v => /[",]/.test(v) ? '"' + String(v).replace(/"/g, '""') + '"' : v;
+  const lines = [head.join(",")].concat(rs.map(r => [r.c.id, dateOf(r.c.day).toISOString().slice(0, 10), fmtTime(r.c.hour, r.c.minute), ...SIGNALS.map((s, j) => q(s.levels[r.c.f[j]])), r.group, roundOffer(r.sav), r.conv ? "yes" : "no", r.conv ? Math.round(r.profit) : 0].join(",")));
+  const res = await saveFile(M().name.replace(/[^A-Za-z]+/g, "_") + "_cart_log.csv", new Blob([lines.join("\n")], { type: "text/csv" }));
+  if (res === "saved") toast("CSV saved."); else if (res === "failed") toast("Couldn't save the CSV here.");
+}
+
+/* ================= INIT ================= */
+loadCfg();
+$("#merchantSel").innerHTML = MERCHANTS.map(m => `<option value="${m.id}">${esc(m.name)} · ${esc(m.vertical)}</option>`).join("");
+$("#merchantSel").value = S.merchant;
+$("#merchantSel").onchange = e => { S.merchant = e.target.value; S.openWhy = {}; S.curve.cats = ["c1"]; S.log.page = 0; try { localStorage.setItem("mar-ui-merchant", S.merchant); } catch (er) {} render(); };
+$("#rangeSel").onchange = e => { S.range = +e.target.value; S.log.page = 0; render(); toast("Showing " + periodLabel() + "."); };
+$$("#agentNav button").forEach(b => b.onclick = () => go(b.dataset.view));
+$("#howBtn").onclick = openHow;
+$("#menuBtn").onclick = e => { e.stopPropagation(); $("#nav").classList.toggle("open"); };
+document.addEventListener("click", e => { const n = $("#nav"); if (n.classList.contains("open") && !n.contains(e.target)) n.classList.remove("open"); });
+if (window.Chart) { Chart.defaults.font.family = tok("--f-ui"); Chart.defaults.color = tok("--fg-3"); }
+const hashView = (location.hash || "").replace("#", "");
+const mq = window.matchMedia("(prefers-color-scheme: dark)"); if (mq.addEventListener) mq.addEventListener("change", () => render());
+new MutationObserver(() => render()).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+go(TITLES[hashView] ? hashView : "marketplace");
+</script>
+
+</body>
+</html>
