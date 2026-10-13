@@ -286,6 +286,19 @@ tbody tr.click:hover{background:var(--surface-2)}
 tr.expand td{background:var(--surface-2)}
 tr.expand .why{background:transparent;padding:4px 0}
 .sig-list .setting p{max-width:60ch}
+.howto{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+.howto-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.howto-head p{margin:4px 0 0;color:var(--fg-2);font-size:13px}
+.steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media (max-width:960px){.steps{grid-template-columns:1fr 1fr}}@media (max-width:600px){.steps{grid-template-columns:1fr}}
+.steps li{border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:28px 1fr;gap:4px 10px;align-content:start}
+.steps .n{grid-row:span 3;width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-weight:700;font-size:13px}
+.steps h3{margin:0;font-size:14px}
+.steps .where{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--accent)}
+.steps p{margin:0;font-size:12.5px;color:var(--fg-2);line-height:1.45}
+.steps .get{grid-column:2;font-size:12px;color:var(--fg)}
+.steps button{grid-column:2;justify-self:start;margin-top:6px}
+.howto-foot{margin-top:12px;font-size:12px;color:var(--fg-3)}
 </style>
 <style>body{margin:0}[hidden]{display:none!important}img{max-width:100%}</style>
 </head>
@@ -711,11 +724,25 @@ VIEWS.marketplace = () => {
       <span class="faint" style="font-size:12px">Per 1,000 abandoned carts in scope. Synthetic data.</span>
     </div>
   </section>
+  <section class="howto" aria-label="How to use this agent">
+    <div class="howto-head"><div><h2>How to use this agent: 6 steps</h2><p>About 10 minutes to set up. After that, a few minutes a week to review.</p></div><span class="pill p-info">Start here</span></div>
+    <ol class="steps">
+      ${[["setup","Set your categories and limits","Setup","Pick your top-5 margin categories. For each, enter the margin, the most you're willing to discount, and the margin you never go below. Or upload your margin sheet (Excel/PDF) and confirm what's read.","You get: the agent only acts on these items, never past your limits."],
+         ["setup","Review and approve","Setup → banner","The agent shows exactly what will change. Check it, then press <b>Approve and go live</b>. Nothing goes to shoppers before you approve.","You get: a policy you've signed off on."],
+         ["recs","Act on next best actions","Recommendations","Start at the top: each action shows the profit at stake, for example \"set failed payments to retry only\". Apply in one click. Switch any signal or group to reminder-only.","You get: the biggest wins first, without reading every chart."],
+         ["curves","Understand the why","Response curves","Pick a cart type, such as a first-time UPI shopper in the evening, and see how buying chance and profit change with each discount level.","You get: the reason behind each offer, not a black box."],
+         ["log","Spot-check carts","Cart log","Open any cart to see what was sent, the rupee offer, what drove it, and the checks it passed.","You get: an audit trail for every message."],
+         ["performance","Check the proof weekly","Performance","Compare extra profit against the 10% reminder-only group, and against a flat 10% coupon. Pause the agent any time.","You get: incremental profit you can show your finance team."]
+        ].map(([v,t,w,d,g],i)=>`<li><span class="n">${i+1}</span><span class="where">${w}</span><h3>${t}</h3><p>${d}</p><span class="get">${g}</span><button class="btn" data-go="${v}">Go to ${TITLES[v]} →</button></li>`).join("")}
+    </ol>
+    <div class="howto-foot">Tip: new to Razorpay? You don't start from scratch. The agent begins with pooled, bucket-level data from similar product types and learns your store from there.</div>
+  </section>
   <div><h2 style="margin-bottom:12px">Other agents</h2>
   <div class="grid g4">${others.map(([t, d, ic]) => `<div class="card agent-card"><div class="ico">${ic}</div><h3>${t}</h3><p>${d}</p><div class="foot"><span class="pill p-mute plain">Shown for context</span></div></div>`).join("")}</div></div>`;
 };
 BIND.marketplace = () => {
   $("#openAgent").onclick = () => go("recs");
+  $$(".howto [data-go]").forEach(x => x.onclick = () => go(x.dataset.go));
   $("#agentHow").onclick = openHow;
   $("#tabInstalled").onclick = () => toast("Only Margin-Aware Cart Recovery is installed in this prototype.");
   $("#agentDetails").onclick = () => {
